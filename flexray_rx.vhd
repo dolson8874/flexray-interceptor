@@ -207,4 +207,5 @@ begin
       rx_prev := rx;
     end if;
   end process;
+  
 end architecture syn;
