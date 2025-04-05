@@ -88,7 +88,7 @@ begin
   -- rx_psmc : flexray_rx port map (clk => clk, rst => rst, rx => rx_0, msg => msg_dadc, ready => ready_dadc);
   -- rx_dadc : flexray_rx port map (clk => clk, rst => rst, rx => rx_1, msg => msg_dadc, ready => ready_dadc);
   
-  -- rx_dadc : flexray_rx port map (clk => clk, rst => rst, rx => s_tx_0, msg => msg_dadc, ready => ready_dadc);
+  rx_dadc : flexray_rx port map (clk => clk, rst => rst, rx => s_tx_0, msg => msg_dadc, ready => ready_dadc);
   tx_log  : flexray_log port map(i_clk => clk, i_rst => rst, i_ready => log_ready, i_busy => tx_busy, 
                               i_bus => log_bus, i_msg => msg_dadc, 
                               o_tx_byte => tx_byte, o_tx_ready=> tx_ready, o_busy => log_busy);

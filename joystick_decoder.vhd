@@ -157,37 +157,56 @@ begin
 	 
       -- Recv message on ready
         if ready = '1' then
-		  if msg.id = b"00111110000" then
+		  crc_data := crc8_4(b"00000000", msg.dat(55 downto 24)); 
+		  
+		  if msg.id = b"00111110000" then   -- 0x1F0 LKAS AngleTorque
 		
 		    -- can frame_id 0x1F0
 		    -- # steer offset 9000 0x2328
-		    -- #       crc   counter     en torq  torq        HUD
+		    -- #       crc   counter     en torq  torq        
 		    -- #       0      1     2     3        4     5     6     7
 		    -- dat = [ 0xeb, 0xff, 0xff, 0x23,    0x28, 0x00, 0x00, 0x00 ]
 		    --        63~56  55~48 47~40 39~32   31~24  23~16 15~8  7~0
 		
-		    crc_data := crc8_4(b"00000000", msg.dat(55 downto 24)); 
-			
 			if crc_data = msg.dat(63 downto 56) then
 									
 		      -- Decode msg from the joystick
 		      torque <= msg.dat(37 downto 24);
-		      sign <= relay_ctrl & msg.dat(15 downto 8); 
 		      enable <= msg.dat(39);
+			  
 			else
 			  enable <= '0';
 			end if;
 			
+		  elsif msg.id = b"00111111001" then   -- 0x1F9   HUD msg			
+		    -- can frame_id 0x1F9
+		    -- # steer offset 9000 0x2328
+		    -- #       crc   counter     en torq              HUD
+		    -- #       0      1     2     3        4     5     6     7
+		    -- dat = [ 0xeb, 0xff, 0xff, 0x23,    0x28, 0x00, 0x00, 0x00 ]
+		    --        63~56  55~48 47~40 39~32   31~24  23~16 15~8  7~0
+
+			if crc_data = msg.dat(63 downto 56) then
+									
+		      -- Decode msg from the joystick
+		      sign <= relay_ctrl & msg.dat(15 downto 8); 
+		      enable <= msg.dat(39);
+			  
+			else
+			  enable <= '0';
+			end if;
+			
+            -- check can health 
+            if prev_counter = msg.dat(55 downto 48) then
+		      can_received <= '0';
+		    else
+		      can_received <= '1';
+              prev_counter := msg.dat(55 downto 48);
+            end if;	
+			
           else	
             enable <= '0';
           end if;
-
-          if prev_counter = msg.dat(55 downto 48) then
-		    can_received <= '0';
-		  else
-		    can_received <= '1';
-            prev_counter := msg.dat(55 downto 48);
-          end if;			
 		  
 		  
 		else
