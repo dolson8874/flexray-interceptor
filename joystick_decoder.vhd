@@ -62,8 +62,9 @@ architecture syn of joystick_decoder is
   end;  
   
   
-  -- 4000 Hz/10ms, 400000/1sec
-  constant COUNTS_IN_10_MS : integer := 4000; -- 10ms
+  -- 500kbps 4000 Hz/10ms, 400000/1sec
+  -- 800kbps 6400 Hz/10ms, 640000/1sec
+  constant COUNTS_IN_10_MS : integer := 6400; -- 10ms
   constant NUM_MS_TO_DELAY : integer := 100;  -- 100ms
   
   signal msg   : work.can.message;
@@ -205,9 +206,9 @@ begin
             end if;	
 			
           else	
-            enable <= '0';
-          end if;
-		  
+		    --radar data
+            --enable <= '0';
+          end if;		  
 		  
 		else
 		  can_received <= '0';
