@@ -1,0 +1,859 @@
+{
+  "design": {
+    "design_info": {
+      "boundary_crc": "0x11A154136F5F97FA",
+      "device": "xa7s50csga324-1Q",
+      "gen_directory": "../../../../flexray-interceptor-vivado.gen/sources_1/bd/bendbeam",
+      "name": "bendbeam",
+      "rev_ctrl_bd_flag": "RevCtrlBdOff",
+      "synth_flow_mode": "None",
+      "tool_version": "2024.2",
+      "validated": "true"
+    },
+    "design_tree": {
+      "clk_wiz_0": "",
+      "joystick_decoder_0": "",
+      "flexray_interceptor_0": "",
+      "flexray_torque_inter_0": "",
+      "util_vector_logic_0": "",
+      "divider_1": "",
+      "SPI_SLAVE_0": ""
+    },
+    "ports": {
+      "CLK12M": {
+        "type": "clk",
+        "direction": "I",
+        "parameters": {
+          "CLK_DOMAIN": {
+            "value": "bendbeam_CLK12M",
+            "value_src": "default"
+          },
+          "FREQ_HZ": {
+            "value": "12000000"
+          },
+          "FREQ_TOLERANCE_HZ": {
+            "value": "0",
+            "value_src": "default"
+          },
+          "INSERT_VIP": {
+            "value": "0",
+            "value_src": "default"
+          },
+          "PHASE": {
+            "value": "0.0",
+            "value_src": "default"
+          }
+        }
+      },
+      "RstBtn": {
+        "type": "rst",
+        "direction": "I",
+        "parameters": {
+          "INSERT_VIP": {
+            "value": "0",
+            "value_src": "default"
+          },
+          "POLARITY": {
+            "value": "ACTIVE_LOW",
+            "value_src": "default"
+          }
+        }
+      },
+      "BDBUS3": {
+        "type": "data",
+        "direction": "I",
+        "parameters": {
+          "LAYERED_METADATA": {
+            "value": "undef",
+            "value_src": "default"
+          }
+        }
+      },
+      "FR_RX_0": {
+        "type": "data",
+        "direction": "I",
+        "parameters": {
+          "LAYERED_METADATA": {
+            "value": "undef",
+            "value_src": "default"
+          }
+        }
+      },
+      "FR_RX_1": {
+        "type": "data",
+        "direction": "I",
+        "parameters": {
+          "LAYERED_METADATA": {
+            "value": "undef",
+            "value_src": "default"
+          }
+        }
+      },
+      "RELAY_DRV": {
+        "type": "data",
+        "direction": "O",
+        "parameters": {
+          "LAYERED_METADATA": {
+            "value": "undef",
+            "value_src": "default"
+          }
+        }
+      },
+      "FR_TX_0": {
+        "type": "data",
+        "direction": "O",
+        "parameters": {
+          "LAYERED_METADATA": {
+            "value": "undef",
+            "value_src": "default"
+          }
+        }
+      },
+      "FR_TX_1": {
+        "type": "data",
+        "direction": "O",
+        "parameters": {
+          "LAYERED_METADATA": {
+            "value": "undef",
+            "value_src": "default"
+          }
+        }
+      },
+      "FR_TXEN_0": {
+        "type": "data",
+        "direction": "O",
+        "parameters": {
+          "LAYERED_METADATA": {
+            "value": "undef",
+            "value_src": "default"
+          }
+        }
+      },
+      "FR_TXEN_1": {
+        "type": "data",
+        "direction": "O",
+        "parameters": {
+          "LAYERED_METADATA": {
+            "value": "undef",
+            "value_src": "default"
+          }
+        }
+      },
+      "O_CAN1_TX": {
+        "type": "data",
+        "direction": "O",
+        "parameters": {
+          "LAYERED_METADATA": {
+            "value": "undef",
+            "value_src": "default"
+          }
+        }
+      },
+      "O_CAN1_RX": {
+        "type": "data",
+        "direction": "I",
+        "parameters": {
+          "LAYERED_METADATA": {
+            "value": "undef",
+            "value_src": "default"
+          }
+        }
+      },
+      "CAN_STBY": {
+        "type": "data",
+        "direction": "O",
+        "parameters": {
+          "LAYERED_METADATA": {
+            "value": "undef",
+            "value_src": "default"
+          }
+        }
+      },
+      "LED4": {
+        "direction": "O"
+      },
+      "BDBUS2": {
+        "direction": "O"
+      },
+      "BDBUS1": {
+        "direction": "I"
+      },
+      "BDBUS0": {
+        "direction": "I"
+      },
+      "LED5": {
+        "direction": "O",
+        "parameters": {
+          "LAYERED_METADATA": {
+            "value": "undef",
+            "value_src": "default_prop"
+          }
+        }
+      },
+      "LED3": {
+        "direction": "O"
+      }
+    },
+    "components": {
+      "clk_wiz_0": {
+        "vlnv": "xilinx.com:ip:clk_wiz:6.0",
+        "ip_revision": "15",
+        "xci_name": "bendbeam_clk_wiz_0_0",
+        "xci_path": "ip\\bendbeam_clk_wiz_0_0\\bendbeam_clk_wiz_0_0.xci",
+        "inst_hier_path": "clk_wiz_0",
+        "parameters": {
+          "CLKIN1_JITTER_PS": {
+            "value": "833.33"
+          },
+          "CLKOUT1_JITTER": {
+            "value": "588.050"
+          },
+          "CLKOUT1_PHASE_ERROR": {
+            "value": "613.025"
+          },
+          "CLKOUT1_REQUESTED_OUT_FREQ": {
+            "value": "80.000"
+          },
+          "CLKOUT2_JITTER": {
+            "value": "686.725"
+          },
+          "CLKOUT2_PHASE_ERROR": {
+            "value": "613.025"
+          },
+          "CLKOUT2_REQUESTED_OUT_FREQ": {
+            "value": "40.000"
+          },
+          "CLKOUT2_USED": {
+            "value": "true"
+          },
+          "CLKOUT3_JITTER": {
+            "value": "959.347"
+          },
+          "CLKOUT3_PHASE_ERROR": {
+            "value": "613.025"
+          },
+          "CLKOUT3_REQUESTED_OUT_FREQ": {
+            "value": "6.400"
+          },
+          "CLKOUT3_USED": {
+            "value": "true"
+          },
+          "MMCM_CLKFBOUT_MULT_F": {
+            "value": "50.000"
+          },
+          "MMCM_CLKIN1_PERIOD": {
+            "value": "83.333"
+          },
+          "MMCM_CLKIN2_PERIOD": {
+            "value": "10.0"
+          },
+          "MMCM_CLKOUT0_DIVIDE_F": {
+            "value": "7.500"
+          },
+          "MMCM_CLKOUT1_DIVIDE": {
+            "value": "15"
+          },
+          "MMCM_CLKOUT2_DIVIDE": {
+            "value": "94"
+          },
+          "NUM_OUT_CLKS": {
+            "value": "3"
+          },
+          "PRIM_IN_FREQ": {
+            "value": "12.000"
+          }
+        }
+      },
+      "joystick_decoder_0": {
+        "vlnv": "xilinx.com:module_ref:joystick_decoder:1.0",
+        "ip_revision": "1",
+        "xci_name": "bendbeam_joystick_decoder_0_0",
+        "xci_path": "ip\\bendbeam_joystick_decoder_0_0\\bendbeam_joystick_decoder_0_0.xci",
+        "inst_hier_path": "joystick_decoder_0",
+        "reference_info": {
+          "ref_type": "hdl",
+          "ref_name": "joystick_decoder",
+          "boundary_crc": "0x0"
+        },
+        "ports": {
+          "clk": {
+            "type": "clk",
+            "direction": "I",
+            "parameters": {
+              "ASSOCIATED_RESET": {
+                "value": "rst",
+                "value_src": "constant"
+              },
+              "FREQ_HZ": {
+                "value": "6382978",
+                "value_src": "ip_prop"
+              },
+              "PHASE": {
+                "value": "0.0",
+                "value_src": "ip_prop"
+              },
+              "CLK_DOMAIN": {
+                "value": "/clk_wiz_0_clk_out1",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "rst": {
+            "type": "rst",
+            "direction": "I",
+            "parameters": {
+              "POLARITY": {
+                "value": "ACTIVE_HIGH",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "rx": {
+            "direction": "I",
+            "parameters": {
+              "LAYERED_METADATA": {
+                "value": "undef",
+                "value_src": "default_prop"
+              }
+            }
+          },
+          "tx": {
+            "direction": "O"
+          },
+          "torque": {
+            "direction": "O",
+            "left": "13",
+            "right": "0"
+          },
+          "sign": {
+            "direction": "O",
+            "left": "8",
+            "right": "0"
+          },
+          "enable": {
+            "direction": "O"
+          },
+          "relay": {
+            "direction": "O"
+          },
+          "enCan": {
+            "direction": "O"
+          },
+          "debug": {
+            "direction": "O"
+          }
+        }
+      },
+      "flexray_interceptor_0": {
+        "vlnv": "xilinx.com:module_ref:flexray_interceptor:1.0",
+        "ip_revision": "1",
+        "xci_name": "bendbeam_flexray_interceptor_0_0",
+        "xci_path": "ip\\bendbeam_flexray_interceptor_0_0\\bendbeam_flexray_interceptor_0_0.xci",
+        "inst_hier_path": "flexray_interceptor_0",
+        "reference_info": {
+          "ref_type": "hdl",
+          "ref_name": "flexray_interceptor",
+          "boundary_crc": "0x0"
+        },
+        "ports": {
+          "clk": {
+            "type": "clk",
+            "direction": "I",
+            "parameters": {
+              "ASSOCIATED_RESET": {
+                "value": "rst",
+                "value_src": "constant"
+              },
+              "FREQ_HZ": {
+                "value": "80000000",
+                "value_src": "ip_prop"
+              },
+              "PHASE": {
+                "value": "0.0",
+                "value_src": "ip_prop"
+              },
+              "CLK_DOMAIN": {
+                "value": "/clk_wiz_0_clk_out1",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "rst": {
+            "type": "rst",
+            "direction": "I",
+            "parameters": {
+              "POLARITY": {
+                "value": "ACTIVE_HIGH",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "rx_0": {
+            "direction": "I",
+            "parameters": {
+              "LAYERED_METADATA": {
+                "value": "undef",
+                "value_src": "default_prop"
+              }
+            }
+          },
+          "tx_0": {
+            "direction": "O"
+          },
+          "tx_en_0": {
+            "direction": "O"
+          },
+          "rx_1": {
+            "direction": "I",
+            "parameters": {
+              "LAYERED_METADATA": {
+                "value": "undef",
+                "value_src": "default_prop"
+              }
+            }
+          },
+          "tx_1": {
+            "direction": "O"
+          },
+          "tx_en_1": {
+            "direction": "O"
+          },
+          "rx": {
+            "direction": "O"
+          },
+          "tx": {
+            "direction": "I"
+          },
+          "override": {
+            "direction": "I"
+          },
+          "rx_valid": {
+            "direction": "I"
+          },
+          "send_log": {
+            "direction": "O",
+            "left": "7",
+            "right": "0"
+          },
+          "ready": {
+            "direction": "O"
+          }
+        }
+      },
+      "flexray_torque_inter_0": {
+        "vlnv": "xilinx.com:module_ref:flexray_torque_intercept:1.0",
+        "ip_revision": "1",
+        "xci_name": "bendbeam_flexray_torque_inter_0_0",
+        "xci_path": "ip\\bendbeam_flexray_torque_inter_0_0\\bendbeam_flexray_torque_inter_0_0.xci",
+        "inst_hier_path": "flexray_torque_inter_0",
+        "reference_info": {
+          "ref_type": "hdl",
+          "ref_name": "flexray_torque_intercept",
+          "boundary_crc": "0x0"
+        },
+        "ports": {
+          "clk": {
+            "type": "clk",
+            "direction": "I",
+            "parameters": {
+              "ASSOCIATED_RESET": {
+                "value": "rst",
+                "value_src": "constant"
+              },
+              "FREQ_HZ": {
+                "value": "80000000",
+                "value_src": "ip_prop"
+              },
+              "PHASE": {
+                "value": "0.0",
+                "value_src": "ip_prop"
+              },
+              "CLK_DOMAIN": {
+                "value": "/clk_wiz_0_clk_out1",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "rst": {
+            "type": "rst",
+            "direction": "I",
+            "parameters": {
+              "POLARITY": {
+                "value": "ACTIVE_HIGH",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "rx": {
+            "direction": "I"
+          },
+          "torque": {
+            "direction": "I",
+            "left": "13",
+            "right": "0"
+          },
+          "sign": {
+            "direction": "I",
+            "left": "8",
+            "right": "0"
+          },
+          "enable": {
+            "direction": "I"
+          },
+          "tx": {
+            "direction": "O"
+          },
+          "override": {
+            "direction": "O"
+          },
+          "sync_debug": {
+            "direction": "O"
+          }
+        }
+      },
+      "util_vector_logic_0": {
+        "vlnv": "xilinx.com:ip:util_vector_logic:2.0",
+        "ip_revision": "4",
+        "xci_name": "bendbeam_util_vector_logic_0_0",
+        "xci_path": "ip\\bendbeam_util_vector_logic_0_0\\bendbeam_util_vector_logic_0_0.xci",
+        "inst_hier_path": "util_vector_logic_0",
+        "parameters": {
+          "C_OPERATION": {
+            "value": "not"
+          },
+          "C_SIZE": {
+            "value": "1"
+          }
+        }
+      },
+      "divider_1": {
+        "vlnv": "xilinx.com:module_ref:divider:1.0",
+        "ip_revision": "1",
+        "xci_name": "bendbeam_divider_1_0",
+        "xci_path": "ip\\bendbeam_divider_1_0\\bendbeam_divider_1_0.xci",
+        "inst_hier_path": "divider_1",
+        "parameters": {
+          "divides": {
+            "value": "80000000"
+          }
+        },
+        "reference_info": {
+          "ref_type": "hdl",
+          "ref_name": "divider",
+          "boundary_crc": "0x0"
+        },
+        "ports": {
+          "clk": {
+            "type": "clk",
+            "direction": "I",
+            "parameters": {
+              "ASSOCIATED_RESET": {
+                "value": "rst",
+                "value_src": "constant"
+              },
+              "FREQ_HZ": {
+                "value": "80000000",
+                "value_src": "ip_prop"
+              },
+              "PHASE": {
+                "value": "0.0",
+                "value_src": "ip_prop"
+              },
+              "CLK_DOMAIN": {
+                "value": "/clk_wiz_0_clk_out1",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "rst": {
+            "type": "rst",
+            "direction": "I",
+            "parameters": {
+              "POLARITY": {
+                "value": "ACTIVE_HIGH",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "o": {
+            "direction": "O"
+          }
+        }
+      },
+      "SPI_SLAVE_0": {
+        "vlnv": "xilinx.com:module_ref:SPI_SLAVE:1.0",
+        "ip_revision": "1",
+        "xci_name": "bendbeam_SPI_SLAVE_0_0",
+        "xci_path": "ip\\bendbeam_SPI_SLAVE_0_0\\bendbeam_SPI_SLAVE_0_0.xci",
+        "inst_hier_path": "SPI_SLAVE_0",
+        "reference_info": {
+          "ref_type": "hdl",
+          "ref_name": "SPI_SLAVE",
+          "boundary_crc": "0x0"
+        },
+        "ports": {
+          "CLK": {
+            "type": "clk",
+            "direction": "I",
+            "parameters": {
+              "ASSOCIATED_RESET": {
+                "value": "RST",
+                "value_src": "constant"
+              },
+              "FREQ_HZ": {
+                "value": "80000000",
+                "value_src": "ip_prop"
+              },
+              "PHASE": {
+                "value": "0.0",
+                "value_src": "ip_prop"
+              },
+              "CLK_DOMAIN": {
+                "value": "/clk_wiz_0_clk_out1",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "RST": {
+            "type": "rst",
+            "direction": "I",
+            "parameters": {
+              "POLARITY": {
+                "value": "ACTIVE_HIGH",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "SCLK": {
+            "direction": "I"
+          },
+          "CS_N": {
+            "direction": "I",
+            "parameters": {
+              "LAYERED_METADATA": {
+                "value": "undef",
+                "value_src": "default_prop"
+              }
+            }
+          },
+          "MOSI": {
+            "direction": "I"
+          },
+          "MISO": {
+            "direction": "O"
+          },
+          "DIN": {
+            "direction": "I",
+            "left": "7",
+            "right": "0"
+          },
+          "DIN_VLD": {
+            "direction": "I"
+          },
+          "DIN_RDY": {
+            "direction": "O"
+          },
+          "DOUT": {
+            "direction": "O",
+            "left": "7",
+            "right": "0"
+          },
+          "DOUT_VLD": {
+            "direction": "O"
+          }
+        }
+      }
+    },
+    "nets": {
+      "BDBUS0_1": {
+        "ports": [
+          "BDBUS0",
+          "SPI_SLAVE_0/SCLK"
+        ]
+      },
+      "BDBUS1_1": {
+        "ports": [
+          "BDBUS1",
+          "SPI_SLAVE_0/MOSI"
+        ]
+      },
+      "BDBUS3_1": {
+        "ports": [
+          "BDBUS3",
+          "LED5",
+          "SPI_SLAVE_0/CS_N"
+        ]
+      },
+      "CLK12M_1": {
+        "ports": [
+          "CLK12M",
+          "clk_wiz_0/clk_in1"
+        ]
+      },
+      "FR_RX_0_1": {
+        "ports": [
+          "FR_RX_0",
+          "flexray_interceptor_0/rx_0"
+        ]
+      },
+      "FR_RX_2_1": {
+        "ports": [
+          "FR_RX_1",
+          "flexray_interceptor_0/rx_1"
+        ]
+      },
+      "O_CAN1_RX_1": {
+        "ports": [
+          "O_CAN1_RX",
+          "joystick_decoder_0/rx"
+        ]
+      },
+      "RstBtn_1": {
+        "ports": [
+          "RstBtn",
+          "util_vector_logic_0/Op1"
+        ]
+      },
+      "SPI_SLAVE_0_DIN_RDY": {
+        "ports": [
+          "SPI_SLAVE_0/DIN_RDY",
+          "flexray_interceptor_0/rx_valid"
+        ]
+      },
+      "SPI_SLAVE_0_MISO": {
+        "ports": [
+          "SPI_SLAVE_0/MISO",
+          "BDBUS2"
+        ]
+      },
+      "clk_wiz_0_clk_out1": {
+        "ports": [
+          "clk_wiz_0/clk_out1",
+          "SPI_SLAVE_0/CLK",
+          "divider_1/clk",
+          "flexray_interceptor_0/clk",
+          "flexray_torque_inter_0/clk"
+        ]
+      },
+      "clk_wiz_0_clk_out3": {
+        "ports": [
+          "clk_wiz_0/clk_out3",
+          "joystick_decoder_0/clk"
+        ]
+      },
+      "divider_1_o": {
+        "ports": [
+          "divider_1/o",
+          "LED4"
+        ]
+      },
+      "flexray_interceptor_0_ready": {
+        "ports": [
+          "flexray_interceptor_0/ready",
+          "SPI_SLAVE_0/DIN_VLD"
+        ]
+      },
+      "flexray_interceptor_0_rx": {
+        "ports": [
+          "flexray_interceptor_0/rx",
+          "flexray_torque_inter_0/rx"
+        ]
+      },
+      "flexray_interceptor_0_send_log": {
+        "ports": [
+          "flexray_interceptor_0/send_log",
+          "SPI_SLAVE_0/DIN"
+        ]
+      },
+      "flexray_interceptor_0_tx_0": {
+        "ports": [
+          "flexray_interceptor_0/tx_0",
+          "FR_TX_0"
+        ]
+      },
+      "flexray_interceptor_0_tx_1": {
+        "ports": [
+          "flexray_interceptor_0/tx_1",
+          "FR_TX_1"
+        ]
+      },
+      "flexray_interceptor_0_tx_en_0": {
+        "ports": [
+          "flexray_interceptor_0/tx_en_0",
+          "FR_TXEN_0"
+        ]
+      },
+      "flexray_interceptor_0_tx_en_1": {
+        "ports": [
+          "flexray_interceptor_0/tx_en_1",
+          "FR_TXEN_1"
+        ]
+      },
+      "flexray_torque_inter_0_override": {
+        "ports": [
+          "flexray_torque_inter_0/override",
+          "flexray_interceptor_0/override"
+        ]
+      },
+      "flexray_torque_inter_0_sync_debug": {
+        "ports": [
+          "flexray_torque_inter_0/sync_debug",
+          "LED3"
+        ]
+      },
+      "flexray_torque_inter_0_tx": {
+        "ports": [
+          "flexray_torque_inter_0/tx",
+          "flexray_interceptor_0/tx"
+        ]
+      },
+      "joystick_decoder_0_enCan": {
+        "ports": [
+          "joystick_decoder_0/enCan",
+          "CAN_STBY"
+        ]
+      },
+      "joystick_decoder_0_enable": {
+        "ports": [
+          "joystick_decoder_0/enable",
+          "flexray_torque_inter_0/enable"
+        ]
+      },
+      "joystick_decoder_0_relay": {
+        "ports": [
+          "joystick_decoder_0/relay",
+          "RELAY_DRV"
+        ]
+      },
+      "joystick_decoder_0_sign": {
+        "ports": [
+          "joystick_decoder_0/sign",
+          "flexray_torque_inter_0/sign"
+        ]
+      },
+      "joystick_decoder_0_torque": {
+        "ports": [
+          "joystick_decoder_0/torque",
+          "flexray_torque_inter_0/torque"
+        ]
+      },
+      "joystick_decoder_0_tx": {
+        "ports": [
+          "joystick_decoder_0/tx",
+          "O_CAN1_TX"
+        ]
+      },
+      "util_vector_logic_0_Res": {
+        "ports": [
+          "util_vector_logic_0/Res",
+          "clk_wiz_0/reset",
+          "SPI_SLAVE_0/RST",
+          "divider_1/rst",
+          "joystick_decoder_0/rst",
+          "flexray_interceptor_0/rst",
+          "flexray_torque_inter_0/rst"
+        ]
+      }
+    }
+  }
+}
