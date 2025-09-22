@@ -83,3 +83,12 @@ set_property SLEW SLOW [get_ports FR_TX_1]
 set_property SLEW SLOW [get_ports FR_TXEN_0]
 set_property SLEW SLOW [get_ports FR_TXEN_1]
 set_property SLEW SLOW [get_ports O_CAN1_TX]
+
+set_property PACKAGE_PIN U15 [get_ports LED2]
+set_property IOSTANDARD LVCMOS33 [get_ports LED2]
+set_property DRIVE 8 [get_ports LED2]
+
+set_property PACKAGE_PIN V16 [get_ports LED1]
+set_property IOSTANDARD LVCMOS33 [get_ports LED1]
+set_property DRIVE 8 [get_ports LED1]
+set_property SLEW SLOW [get_ports LED1]

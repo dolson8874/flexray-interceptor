@@ -1,7 +1,7 @@
 {
   "design": {
     "design_info": {
-      "boundary_crc": "0x11A154136F5F97FA",
+      "boundary_crc": "0x1D24D9A1C6B70EC4",
       "device": "xa7s50csga324-1Q",
       "gen_directory": "../../../../flexray-interceptor-vivado.gen/sources_1/bd/bendbeam",
       "name": "bendbeam",
@@ -191,6 +191,12 @@
         }
       },
       "LED3": {
+        "direction": "O"
+      },
+      "LED2": {
+        "direction": "O"
+      },
+      "LED1": {
         "direction": "O"
       }
     },
@@ -807,6 +813,12 @@
           "flexray_interceptor_0/tx"
         ]
       },
+      "joystick_decoder_0_debug": {
+        "ports": [
+          "joystick_decoder_0/debug",
+          "LED2"
+        ]
+      },
       "joystick_decoder_0_enCan": {
         "ports": [
           "joystick_decoder_0/enCan",
@@ -849,9 +861,9 @@
           "clk_wiz_0/reset",
           "SPI_SLAVE_0/RST",
           "divider_1/rst",
-          "joystick_decoder_0/rst",
           "flexray_interceptor_0/rst",
-          "flexray_torque_inter_0/rst"
+          "flexray_torque_inter_0/rst",
+          "joystick_decoder_0/rst"
         ]
       }
     }

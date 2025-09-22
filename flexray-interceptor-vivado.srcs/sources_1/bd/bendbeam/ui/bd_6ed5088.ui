@@ -1,7 +1,7 @@
 {
    "ActiveEmotionalView":"Default View",
-   "Default View_ScaleFactor":"0.906952",
-   "Default View_TopLeft":"-1244,-191",
+   "Default View_ScaleFactor":"1.0",
+   "Default View_TopLeft":"-1396,-508",
    "ExpandedHierarchyInLayout":"",
    "Interfaces View_ScaleFactor":"0.8",
    "Interfaces View_TopLeft":"-760,-281",
@@ -26,6 +26,8 @@ preplace port port-id_BDBUS1 -pg 1 -lvl 0 -x -1270 -y 340 -defaultsOSRD
 preplace port port-id_BDBUS0 -pg 1 -lvl 0 -x -1270 -y 280 -defaultsOSRD
 preplace port port-id_LED5 -pg 1 -lvl 4 -x 130 -y 260 -defaultsOSRD
 preplace port port-id_LED3 -pg 1 -lvl 4 -x 130 -y 120 -defaultsOSRD
+preplace port port-id_LED2 -pg 1 -lvl 4 -x 130 -y -250 -defaultsOSRD
+preplace port port-id_LED1 -pg 1 -lvl 4 -x 130 -y 20 -defaultsOSRD
 preplace inst clk_wiz_0 -pg 1 -lvl 1 -x -1090 -y -220 -defaultsOSRD
 preplace inst joystick_decoder_0 -pg 1 -lvl 3 -x -290 -y -320 -defaultsOSRD
 preplace inst flexray_interceptor_0 -pg 1 -lvl 2 -x -730 -y -70 -defaultsOSRD
@@ -42,7 +44,7 @@ preplace netloc FR_RX_2_1 1 0 2 NJ -70 N
 preplace netloc O_CAN1_RX_1 1 0 3 NJ -360 NJ -360 -610
 preplace netloc RstBtn_1 1 0 1 N -450
 preplace netloc SPI_SLAVE_0_DIN_RDY 1 1 2 -890 -210 -590J
-preplace netloc SPI_SLAVE_0_MISO 1 2 2 N 280 -130
+preplace netloc SPI_SLAVE_0_MISO 1 2 2 N 280 -150
 preplace netloc clk_wiz_0_clk_out1 1 1 2 -900 50 N
 preplace netloc clk_wiz_0_clk_out3 1 1 2 -950 -340 NJ
 preplace netloc divider_1_o 1 2 2 NJ -440 N
@@ -56,10 +58,11 @@ preplace netloc flexray_interceptor_0_tx_en_1 1 2 2 NJ -70 N
 preplace netloc flexray_torque_inter_0_override 1 1 3 -850 170 -550J 210 -160
 preplace netloc flexray_torque_inter_0_sync_debug 1 3 1 N 120
 preplace netloc flexray_torque_inter_0_tx 1 1 3 -860 180 -560J 220 -140
+preplace netloc joystick_decoder_0_debug 1 3 1 -130 -260n
 preplace netloc joystick_decoder_0_enCan 1 3 1 N -280
-preplace netloc joystick_decoder_0_enable 1 2 2 -440 -110 -150
+preplace netloc joystick_decoder_0_enable 1 2 2 -440 -110 -160
 preplace netloc joystick_decoder_0_relay 1 3 1 -130 -310n
-preplace netloc joystick_decoder_0_sign 1 2 2 -430 -190 -160
+preplace netloc joystick_decoder_0_sign 1 2 2 -430 -190 -150
 preplace netloc joystick_decoder_0_torque 1 2 2 -420 -160 -140
 preplace netloc joystick_decoder_0_tx 1 3 1 N -380
 preplace netloc util_vector_logic_0_Res 1 0 3 -1230 -310 -920J -320 -450

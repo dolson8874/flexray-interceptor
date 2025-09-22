@@ -63,8 +63,8 @@ architecture syn of joystick_decoder is
   end;
   -- 500kbps 4000 Hz/10ms, 400000/1sec
   -- 800kbps 6400 Hz/10ms, 640000/1sec
-  constant COUNTS_IN_10_MS : integer := 6400; -- 10ms
-  constant NUM_MS_TO_DELAY : integer := 100; -- 100ms
+  constant COUNTS_IN_10_MS : integer := 64000; -- 10ms
+  constant NUM_MS_TO_DELAY : integer := 20;    -- 200ms
 
   signal msg        : work.can.message;
   signal ready      : std_ulogic;
@@ -78,15 +78,23 @@ architecture syn of joystick_decoder is
   signal can_received    : std_ulogic;
   signal counter_10ms_en : std_ulogic;
   signal ms_delay_done   : std_ulogic;
+  
+  signal enable_alive       : std_ulogic := '0';  
+  signal enable_wd_counter  : integer range 0 to 1000 := 0; 
+  constant ENABLE_WD_LIMIT  : integer := 10;  -- 10 * 10ms = 60ms  
+  constant ENABLE_RELAY_CTRL : boolean := false;
+  
+  signal hb_cnt   : integer range 0 to 49 := 0;  -- 100 * 10ms = 1000ms 
+  signal hb_led   : std_ulogic := '0';  
 
 begin
   rx_obj : can_rx PORT map (clk => clk, rst => rst, rx => rx, ready => ready, msg => msg, tx => tx);
   --tx_obj : can_tx port map (clk => clk, rst => rst, ready => ready_tx, 
   --                           msg => omsg, busy => ibusy , tx => tx, done => idone); 
 
-  debug <= not can_received;
-  --relay <= relay_ctrl;
-  relay <= '0';
+  -- debug <= not can_received;
+  debug <= hb_led;
+  relay <= relay_ctrl when ENABLE_RELAY_CTRL else '0';
   enCan <= '0'; -- CAN_SANDBY
 
   timebase : process (clk, rst)
@@ -129,9 +137,7 @@ begin
             ms_delay := 0;
           end if;
         end if;
-
         -- debug <= blinker;
-
       end if;
 
     end if;
@@ -149,14 +155,16 @@ begin
       can_received <= '0';
       prev_counter := (others => '0');
       crc_data     := (others => '0');
-
+      enable_alive <= '0';
+      
     elsif rising_edge(clk) then
-
+      
       -- Recv message on ready
       if ready = '1' then
-        crc_data := crc8_4(b"00000000", msg.dat(55 downto 24));
+        if msg.id = b"00111110000" or  msg.id = b"00111111001" then
+          crc_data := crc8_4(b"00000000", msg.dat(55 downto 24));
 
-        if msg.id = b"00111110000" then -- 0x1F0 LKAS AngleTorque
+          if msg.id = b"00111110000" then -- 0x1F0 LKAS AngleTorque
 
           -- can frame_id 0x1F0
           -- # steer offset 9000 0x2328
@@ -165,17 +173,16 @@ begin
           -- dat = [ 0xeb, 0xff, 0xff, 0x23,    0x28, 0x00, 0x00, 0x00 ]
           --        63~56  55~48 47~40 39~32   31~24  23~16 15~8  7~0
 
-          --if crc_data = msg.dat(63 downto 56) then
+            if crc_data = msg.dat(63 downto 56) then
+            -- Decode msg from the joystick
+              torque <= msg.dat(37 downto 24);
+              enable <= msg.dat(39);
+              enable_alive <= '1'; 
+            else
+              enable <= '0';
+            end if;
 
-          -- Decode msg from the joystick
-          torque <= msg.dat(37 downto 24);
-          enable <= msg.dat(39);
-
-          --else
-          --enable <= '0';
-          --end if;
-
-        elsif msg.id = b"00111111001" then -- 0x1F9   HUD msg			
+          else  -- if msg.id = b"00111111001" then -- 0x1F9   HUD msg			
           -- can frame_id 0x1F9
           -- # steer offset 9000 0x2328
           -- #       crc   counter     en torq              HUD
@@ -183,33 +190,73 @@ begin
           -- dat = [ 0xeb, 0xff, 0xff, 0x23,    0x28, 0x00, 0x00, 0x00 ]
           --        63~56  55~48 47~40 39~32   31~24  23~16 15~8  7~0
 
-          if crc_data = msg.dat(63 downto 56) then
+            if crc_data = msg.dat(63 downto 56) then
 
-            -- Decode msg from the joystick
-            sign   <= relay_ctrl & msg.dat(15 downto 8);
-            enable <= msg.dat(39);
+              -- Decode msg from the joystick
+              sign   <= relay_ctrl & msg.dat(15 downto 8);
 
-          else
-            enable <= '0';
-          end if;
+            else
+              enable <= '0';
+            end if;
 
-          -- check can health 
-          if prev_counter = msg.dat(55 downto 48) then
-            can_received <= '0';
-          else
-            can_received <= '1';
-            prev_counter := msg.dat(55 downto 48);
+            -- check can health 
+            if prev_counter = msg.dat(55 downto 48) then
+              can_received <= '0';
+            else
+              can_received <= '1';
+              prev_counter := msg.dat(55 downto 48);
+            end if;
           end if;
 
         else
-          --radar data
-          --enable <= '0';
+         --radar data
         end if;
 
       else
         can_received <= '0';
       end if;
+      
+      -- check 0x1F0 50hz , 20ms
+      if counter_10ms_en = '1' then
+        if enable_alive = '1' then
+          enable_wd_counter <= 0;
+        elsif enable_wd_counter < ENABLE_WD_LIMIT then
+          enable_wd_counter <= enable_wd_counter + 1;
+        end if;
+
+        if enable_wd_counter = ENABLE_WD_LIMIT then
+          enable <= '0';  
+        end if;
+        
+        enable_alive <= '0';
+      end if;
+  
+  
+      if relay_ctrl = '1' then
+        enable <= '0';
+        sign(7) <= '0';
+      end if;
+       
+      sign(8) <= relay_ctrl;
+      
     end if;
   end process;
+  
+  heartbeat : process(clk, rst)
+  begin
+    if rst = '1' then
+      hb_cnt <= 0;
+      hb_led <= '0';
+    elsif rising_edge(clk) then
+      if counter_10ms_en = '1' then                 -- 10ms마다 1클럭 펄스
+        if hb_cnt = 49 then                         -- 100 * 10ms = 1s
+          hb_cnt <= 0;
+          hb_led <= not hb_led;                     -- 1초마다 토글(0.5Hz 깜빡임)
+        else
+          hb_cnt <= hb_cnt + 1;
+        end if;
+      end if;
+    end if;
+  end process heartbeat;  
 
 end architecture syn;
