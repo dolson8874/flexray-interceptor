@@ -130,5 +130,11 @@ The design places two FlexRay PHYs between vehicle bus segments to provide **tra
 | GPIO4       | P1         | SMAW200-20C | 17           |
 | GPIO6       | R1         | SMAW200-20C | 15           |
 | GPIO7       | R3         | SMAW200-20C | 14           |
-| GPIO8       |            |             |              |
+| GPIO8	     | T2	      | SMAW200-20C | 13           |
+| GPIO9	     | T1	      | SMAW200-20C | 12           |
+| GPIO10	     | U1		   | SMAW200-20C | 11           |
+| GPIO11	     | U3		   | SMAW200-20C | 10           |
+| GPIO12	     | U2		   | SMAW200-20C | 9            |
+| GPIO13	     | V3		   | SMAW200-20C | 8            |
+| GPIO14	     | V2		   | SMAW200-20C | 7            |
 
