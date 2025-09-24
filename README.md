@@ -70,4 +70,65 @@ The design places two FlexRay PHYs between vehicle bus segments to provide **tra
    - Choose an output path and Generate.
    - Check overwrite 
 
+<br><br>
+
+# FPGA Pin map
+| Name        | XA7S50 Pin | Part        | Signal/Notes |
+| ----------- | ---------- | ----------- | ------------ |
+| CLK         | R2         | OSC 12MHz   |              |
+| RESET out   | J6         |             |              |
+| DONE        | V8         | LED         | D1           |
+| TCK         | D9         | FT4232HAQ A | ADBUS0       |
+| TDI         | R9         | FT4232HAQ A | ADBUS1       |
+| TDO         | T8         | FT4232HAQ A | ADBUS2       |
+| TMS         | T9         | FT4232HAQ A | ADBUS3       |
+| SCLK        | M167       | FT4232HAQ B | BDBUS0       |
+| MOSI        | M17        | FT4232HAQ B | BDBUS1       |
+| MISO        | M18        | FT4232HAQ B | BDBUS2       |
+| NCS         | N18        | FT4232HAQ B | BDBUS3       |
+| CDBUS0      | B13        | FT4232HAQ C | CDBUS0       |
+| CDBUS1      | A13        | FT4232HAQ C | CDBUS1       |
+| CDBUS2      | B14        | FT4232HAQ C | CDBUS2       |
+| CDBUS3      | A13        | FT4232HAQ C | CDBUS3       |
+| CDBUS4      | B15        | FT4232HAQ C | CDBUS4       |
+| CDBUS5      | A15        | FT4232HAQ C | CDBUS5       |
+| CDBUS6      | B16        | FT4232HAQ C | CDBUS6       |
+| CDBUS7      | A16        | FT4232HAQ C | CDBUS7       |
+| DDBUS0      | E12        | FT4232HAQ D | DDBUS0       |
+| DDBUS1      | D12        | FT4232HAQ D | DDBUS1       |
+| DDBUS2      | C13        | FT4232HAQ D | DDBUS2       |
+| DDBUS3      | C14        | FT4232HAQ D | DDBUS3       |
+| DDBUS4      | B17        | FT4232HAQ D | DDBUS4       |
+| DDBUS5      | A17        | FT4232HAQ D | DDBUS5       |
+| DDBUS6      | C17        | FT4232HAQ D | DDBUS6       |
+| DDBUS7      | B18        | FT4232HAQ D | DDBUS7       |
+| LED1        | V16        | LED         | D7           |
+| LED2        | U15        | LED         | D8           |
+| LED3        | T15        | LED         | D9           |
+| LED4        | R15        | LED         | D10          |
+| LED5        | V17        | LED         | D11          |
+| FR0\_TXD    | K4         | TJA1081     | TXD          |
+| FR0\_RXD    | L4         | TJA1081     | RXD          |
+| FR0\_TXEN   | K3         | TJA1081     | TXEN         |
+| FR1\_TXD    | K2         | TJA1081     | TXD          |
+| FR1\_RXD    | K1         | TJA1081     | RXD          |
+| FR1\_TXEN   | L1         | TJA1081     | TXEN         |
+| FR2\_TXD    | K6         | TJA1081     | TXD          |
+| FR2\_RXD    | L6         | TJA1081     | RXD          |
+| FR2\_TXEN   | L5         | TJA1081     | TXEN         |
+| FR3\_TXD    | M4         | TJA1081     | TXD          |
+| FR3\_RXD    | M6         | TJA1081     | RXD          |
+| FR3\_TXEN   | M5         | TJA1081     | TXEN         |
+| CAN\_TX     | M3         | ATA6561     | TXD          |
+| CAN\_RX     | M2         | ATA6561     | RXD          |
+| CAN\_STBY   | M1         | ATA6561     | STBY         |
+| RELAY\_DRV0 | G16        | FR0 - FR1   |              |
+| RELAY\_DRV1 | G17        | FR2 - FR3   |              |
+| GPIO1       | N5         | SMAW200-20C | 20           |
+| GPIO2       | N4         | SMAW200-20C | 19           |
+| GPIO3       | P2         | SMAW200-20C | 18           |
+| GPIO4       | P1         | SMAW200-20C | 17           |
+| GPIO6       | R1         | SMAW200-20C | 15           |
+| GPIO7       | R3         | SMAW200-20C | 14           |
+| GPIO8       |            |             |              |
 
