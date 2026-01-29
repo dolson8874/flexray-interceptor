@@ -35,8 +35,8 @@ preplace inst flexray_torque_inter_0 -pg 1 -lvl 3 -x -290 -y 100 -defaultsOSRD
 preplace inst util_vector_logic_0 -pg 1 -lvl 1 -x -1090 -y -450 -defaultsOSRD
 preplace inst divider_1 -pg 1 -lvl 2 -x -730 -y -440 -defaultsOSRD
 preplace inst SPI_SLAVE_0 -pg 1 -lvl 2 -x -730 -y 310 -defaultsOSRD
-preplace netloc BDBUS0_1 1 0 2 NJ 280 -950J
-preplace netloc BDBUS1_1 1 0 2 NJ 340 -950J
+preplace netloc BDBUS0_1 1 0 2 NJ 280 -940J
+preplace netloc BDBUS1_1 1 0 2 NJ 340 -940J
 preplace netloc BDBUS3_1 1 0 4 NJ 310 -910J 190 -580 260 N
 preplace netloc CLK12M_1 1 0 1 N -210
 preplace netloc FR_RX_0_1 1 0 2 NJ -100 -910
@@ -46,7 +46,7 @@ preplace netloc RstBtn_1 1 0 1 N -450
 preplace netloc SPI_SLAVE_0_DIN_RDY 1 1 2 -890 -210 -590J
 preplace netloc SPI_SLAVE_0_MISO 1 2 2 N 280 -150
 preplace netloc clk_wiz_0_clk_out1 1 1 2 -900 50 N
-preplace netloc clk_wiz_0_clk_out3 1 1 2 -950 -340 NJ
+preplace netloc clk_wiz_0_clk_out3 1 1 2 -940 -340 NJ
 preplace netloc divider_1_o 1 2 2 NJ -440 N
 preplace netloc flexray_interceptor_0_ready 1 1 2 -880 -200 -600
 preplace netloc flexray_interceptor_0_rx 1 2 1 -570 -50n
@@ -65,7 +65,7 @@ preplace netloc joystick_decoder_0_relay 1 3 1 -130 -310n
 preplace netloc joystick_decoder_0_sign 1 2 2 -430 -190 -150
 preplace netloc joystick_decoder_0_torque 1 2 2 -420 -160 -140
 preplace netloc joystick_decoder_0_tx 1 3 1 N -380
-preplace netloc util_vector_logic_0_Res 1 0 3 -1230 -310 -920J -320 -450
+preplace netloc util_vector_logic_0_Res 1 0 3 -1240 -310 -920J -320 -450
 levelinfo -pg 1 -1270 -1090 -730 -290 130
 pagesize -pg 1 -db -bbox -sgen -1410 -750 620 760
 "

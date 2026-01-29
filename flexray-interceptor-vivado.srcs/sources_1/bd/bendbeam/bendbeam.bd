@@ -858,12 +858,12 @@
       "util_vector_logic_0_Res": {
         "ports": [
           "util_vector_logic_0/Res",
-          "clk_wiz_0/reset",
           "SPI_SLAVE_0/RST",
           "divider_1/rst",
           "flexray_interceptor_0/rst",
-          "flexray_torque_inter_0/rst",
-          "joystick_decoder_0/rst"
+          "clk_wiz_0/reset",
+          "joystick_decoder_0/rst",
+          "flexray_torque_inter_0/rst"
         ]
       }
     }

@@ -74,16 +74,20 @@ architecture syn of flexray_torque_intercept is
   signal lkas_diff_counter : integer range -15 to 15;
   signal asl_gray_icon     : std_ulogic;
   
-  constant TEST_LCA : boolean := false;
+  constant TEST_LCA : boolean := true;
   -- D00:9   :0x7   
   -- D01:18  :0x02
   -- 3100:27 :0xe0
   -- 3101:3  :0x80
+  -- 3101:18:4 :1 1
   -- 3102:7  :0xff
+  -- 3102:9  :??
   -- 3102:19 :0x38
   -- 3102:20 :0x07
   -- 3102:23 :0x20
+  -- 3155: ??
   -- 3B01:12 :0x15
+  -- 3B10:22 :0x44,0x55
 begin
 
   sync_debug <= not (asl_gray_icon and in_sync);
@@ -432,10 +436,9 @@ begin
               if TEST_LCA and lkas_ready = '1' then
                 override_data(1) := x"80"; -- 20250822 Test LFA below 50Km
                 override_mask(1) := x"ff";              
-                
-                override_data(17) := x"00"; -- 20250822 Test LFA below 50Km
-                override_mask(17) := x"40";                    
-              
+
+                override_data(16) := x"40"; -- 20260129 Test LFA below 50Km
+                override_mask(16) := x"40";    
               end if;
             end if;
             
@@ -500,45 +503,45 @@ begin
        
           -- 0x3b01 counter 1 100Hz
           -- 20250610 Test LFA below 50Km
-           elsif TEST_LCA and in_sync = '1' and decode_msg.frame_id = b"00000111011"
-             and (lkas_cycle_counter = 1 or lkas_cycle_counter = 3) then
+           -- elsif TEST_LCA and in_sync = '1' and decode_msg.frame_id = b"00000111011"
+             -- and (lkas_cycle_counter = 1 or lkas_cycle_counter = 3) then
 
-             if lkas_enable = '1' then
-               is_overriding := '1';
+             -- if lkas_enable = '1' then
+               -- is_overriding := '1';
               
-               if v_real_bit_counter = 40 then
-                 override_data := (others => (others => '0'));
-                 override_mask := (others => (others => '0'));              
+               -- if v_real_bit_counter = 40 then
+                 -- override_data := (others => (others => '0'));
+                 -- override_mask := (others => (others => '0'));              
 
-                 override_data(9) := b"0000" & (std_ulogic_vector(to_unsigned(lkas_counter, 4)));
-                 override_mask(9) := x"ff";   
+                 -- override_data(9) := b"0000" & (std_ulogic_vector(to_unsigned(lkas_counter, 4)));
+                 -- override_mask(9) := x"ff";   
                 
-                 override_data(10) := x"15"; -- 20250610 Test LFA below 50Km
-                 override_mask(10) := x"ff";   
+                 -- override_data(10) := x"15"; -- 20250610 Test LFA below 50Km
+                 -- override_mask(10) := x"ff";   
                 
-                 override_data(11) := x"dc"; -- 20250610 Test LFA below 50Km
-                 override_mask(11) := x"ff";          
+                 -- override_data(11) := x"dc"; -- 20250610 Test LFA below 50Km
+                 -- override_mask(11) := x"ff";          
 
-                 override_data(12) := x"05"; -- 20250610 Test LFA below 50Km
-                 override_mask(12) := x"ff";                     
+                 -- override_data(12) := x"05"; -- 20250610 Test LFA below 50Km
+                 -- override_mask(12) := x"ff";                     
 
-                 override_data(13) := x"dc"; -- 20250610 Test LFA below 50Km
-                 override_mask(13) := x"ff";  
+                 -- override_data(13) := x"dc"; -- 20250610 Test LFA below 50Km
+                 -- override_mask(13) := x"ff";  
                 
-                 override_data(14) := x"0f"; -- 20250610 Test LFA below 50Km
-                 override_mask(14) := x"ff";  
+                 -- override_data(14) := x"0f"; -- 20250610 Test LFA below 50Km
+                 -- override_mask(14) := x"ff";  
 
-                 override_data(15) := x"a0"; -- 20250610 Test LFA below 50Km
-                 override_mask(15) := x"ff";                  
+                 -- override_data(15) := x"a0"; -- 20250610 Test LFA below 50Km
+                 -- override_mask(15) := x"ff";                  
 
-                 override_data(8) := crc8_0x1D(override_data(9) & override_data(10) & 
-                                               override_data(11) & override_data(12) &
-                                               override_data(13) & override_data(14) &
-                                               override_data(15),
-                                               x"B4");
-                 override_mask(8) := x"ff";              
-               end if;
-             end if;
+                 -- override_data(8) := crc8_0x1D(override_data(9) & override_data(10) & 
+                                               -- override_data(11) & override_data(12) &
+                                               -- override_data(13) & override_data(14) &
+                                               -- override_data(15),
+                                               -- x"B4");
+                 -- override_mask(8) := x"ff";              
+               -- end if;
+             -- end if;
             
           -- TEST below 50Km
           -- frame id=0x0d sync_id=0/4 
@@ -547,13 +550,13 @@ begin
 
             if lkas_ready = '1' then
               is_overriding := '1';
-              if v_real_bit_counter = 40 then
+              --if v_real_bit_counter = 40 then
                 override_data := (others => (others => '0'));
                 override_mask := (others => (others => '0'));
                 
                 override_data(7) := x"07";  -- 20250823 Test LFA below 50Km 
                 override_mask(7) := x"ff";
-              end if;
+              --end if;
               
             end if;            
 
@@ -575,7 +578,7 @@ begin
                 override_mask(16) := x"ff";   
               end if;
 
-              if v_real_bit_counter = 40 then
+              --if v_real_bit_counter = 40 then
                 if lkas_enable = '1' then
                   override_data(15) := b"00100000";
                   override_mask(15) := x"20";
@@ -583,17 +586,17 @@ begin
                   override_data(15) := b"01100000";
                   override_mask(15) := x"60";
                 end if;
-              end if;
+              --end if;
             end if;
 
             -- hazard light by asl handle button (blinker left, right) 
             if asl_gray_icon = '1' then
               is_overriding := '1';
 
-              if v_real_bit_counter = 40 then
+              --if v_real_bit_counter = 40 then
                 override_data(7) := b"000" & asl_gray_icon & b"0000";
                 override_mask(7) := x"10";
-              end if;
+              --end if;
             end if;
           else
             is_overriding := '0';
