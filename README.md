@@ -199,6 +199,8 @@ Run the local simulations with Vivado 2024.2 installed:
 ./tests/run_all.ps1
 # Payload-length boundaries and stuck-low recovery only:
 ./tests/run_bounds_tests.ps1
+# SPI mode-0 byte streaming, CS aborts, and reset recovery:
+./tests/run_spi_tests.ps1
 # Reproduce the original cantx defects (expected to fail four diagnostics):
 ./tests/run_can_tx_diagnostics.ps1 -SourceRef cantx
 ```
@@ -239,12 +241,12 @@ Verification including the review fixes below and disabled LCA tests, on
 
 | Configuration | Routed WNS | Routed WHS | Setup/hold failing endpoints |
 | --- | ---: | ---: | ---: |
-| Telemetry disabled | +0.560 ns | +0.015 ns | 0 / 0 |
-| Telemetry enabled in verification project | +0.633 ns | +0.008 ns | 0 / 0 |
+| Telemetry disabled | +0.749 ns | +0.016 ns | 0 / 0 |
+| Telemetry enabled in verification project | +0.533 ns | +0.022 ns | 0 / 0 |
 
-Those implementation reports are in `tests/design_0_bounds.sim/` and
-`tests/design_1_bounds.sim/`, from separate full synthesis/implementation runs
-(`verify_design.tcl -tclargs 0 _bounds` / `1 _bounds`). Both
+Those implementation reports are in `tests/design_0_spi.sim/` and
+`tests/design_1_spi.sim/`, from separate full synthesis/implementation runs
+(`verify_design.tcl -tclargs 0 _spi` / `1 _spi`). Both
 methodology reports have zero findings. CDC reports retain CDC-15 warnings
 for the mailbox/FIFO clock-enable structures; request/acknowledgement behavior,
 data delay, and bus skew were checked rather than suppressing those warnings.
@@ -264,6 +266,14 @@ The boundary suite covers every seven-bit payload length (0 through 127 words),
 active interception of long frames up to 254 bytes, CRC rejection, and recovery
 after a 1 ms dominant input. BSS counters track a modulo-10 byte phase; the
 interceptor's full data-position counter includes header, maximum payload, and CRC.
+
+SPI logging uses mode 0 with a prefetched TX byte. If CS goes high before all
+eight clock cycles complete, the partial RX byte is discarded and the same TX
+byte is retried from its first bit at the next CS assertion. A next byte already
+prefetched after a complete byte also survives a CS boundary. Clocks while CS is
+high do not complete bytes or request more FIFO data. An empty TX stream sends
+zero filler; warm reset clears buffered SPI state. The SPI suite checks partial
+lengths 1 through 7, continuous transfers, FIFO consumption, empty TX, and reset.
 
 ## Review fixes and disabled LCA tests
 

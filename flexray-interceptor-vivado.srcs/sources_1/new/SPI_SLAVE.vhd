@@ -52,6 +52,9 @@ architecture RTL of SPI_SLAVE is
     signal last_bit_en        : std_ulogic;
     signal load_data_en       : std_ulogic;
     signal data_shreg         : std_ulogic_vector(WORD_SIZE-1 downto 0);
+    -- Preserve the prefetched TX word while the shared shift register receives
+    -- MOSI. An aborted transaction must retry this word, not the shifted data.
+    signal tx_word            : std_ulogic_vector(WORD_SIZE-1 downto 0);
     signal slave_ready        : std_ulogic;
     signal shreg_busy         : std_ulogic;
     signal rx_data_vld        : std_ulogic;
@@ -109,7 +112,7 @@ begin
     bit_cnt_p : process (CLK)
     begin
         if (rising_edge(CLK)) then
-            if (RST = '1') then
+            if (RST = '1' or cs_n_reg = '1') then
                 bit_cnt <= (others => '0');
             elsif (spi_clk_fedge_en = '1' and cs_n_reg = '0') then
                 if (bit_cnt_max = '1') then
@@ -133,7 +136,7 @@ begin
     last_bit_en_p : process (CLK)
     begin
         if (rising_edge(CLK)) then
-            if (RST = '1') then
+            if (RST = '1' or cs_n_reg = '1') then
                 last_bit_en <= '0';
             else
                 last_bit_en <= bit_cnt_max;
@@ -147,7 +150,7 @@ begin
 
     -- Received data from master are valid when falling edge of SPI clock is
     -- detected and the last bit of received byte is detected.
-    rx_data_vld <= spi_clk_fedge_en and last_bit_en;
+    rx_data_vld <= spi_clk_fedge_en and last_bit_en and not cs_n_reg and not RST;
 
     -- -------------------------------------------------------------------------
     --  SHIFT REGISTER BUSY FLAG REGISTER
@@ -160,7 +163,7 @@ begin
             if (RST = '1') then
                 shreg_busy <= '0';
             else
-                if (DIN_VLD = '1' and (cs_n_reg = '1' or rx_data_vld = '1')) then
+                if (load_data_en = '1') then
                     shreg_busy <= '1';
                 elsif (rx_data_vld = '1') then
                     shreg_busy <= '0';
@@ -173,7 +176,7 @@ begin
 
     -- The SPI slave is ready for accept new input data when cs_n_reg is assert and
     -- shift register not busy or when received data are valid.
-    slave_ready <= (cs_n_reg and not shreg_busy) or rx_data_vld;
+    slave_ready <= ((cs_n_reg and not shreg_busy) or rx_data_vld) and not RST;
     
     -- The new input data is loaded into the shift register when the SPI slave
     -- is ready and input data are valid.
@@ -188,8 +191,17 @@ begin
     data_shreg_p : process (CLK)
     begin
         if (rising_edge(CLK)) then
-            if (load_data_en = '1') then
+            if (RST = '1') then
+                tx_word <= (others => '0');
+                data_shreg <= (others => '0');
+            elsif (load_data_en = '1') then
+                tx_word <= DIN;
                 data_shreg <= DIN;
+            elsif (cs_n_reg = '1') then
+                if shreg_busy = '1' then data_shreg <= tx_word;
+                else data_shreg <= (others => '0'); end if;
+            elsif (rx_data_vld = '1') then
+                data_shreg <= (others => '0'); -- no next word: send zero filler
             elsif (spi_clk_redge_en = '1' and cs_n_reg = '0') then
                 data_shreg <= data_shreg(WORD_SIZE-2 downto 0) & mosi_reg;
             end if;
@@ -205,8 +217,15 @@ begin
     miso_p : process (CLK)
     begin
         if (rising_edge(CLK)) then
-            if (load_data_en = '1') then
+            if (RST = '1') then
+                MISO <= '0';
+            elsif (load_data_en = '1') then
                 MISO <= DIN(WORD_SIZE-1);
+            elsif (cs_n_reg = '1') then
+                if shreg_busy = '1' then MISO <= tx_word(WORD_SIZE-1);
+                else MISO <= '0'; end if;
+            elsif (rx_data_vld = '1') then
+                MISO <= '0';
             elsif (spi_clk_fedge_en = '1' and cs_n_reg = '0') then
                 MISO <= data_shreg(WORD_SIZE-1);
             end if;
