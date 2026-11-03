@@ -14,7 +14,7 @@ try {
     $files += @('can_reference_pkg.vhd','flexray_reference_pkg.vhd','telemetry_integration_tb.vhd') | ForEach-Object { Join-Path $PSScriptRoot $_ }
     & (Join-Path $VivadoBin 'xvhdl.bat') --2008 @files
     if ($LASTEXITCODE -ne 0) { throw 'Compile failed' }
-    & (Join-Path $VivadoBin 'xelab.bat') work.telemetry_integration_tb work.glbl -L xpm -s telemetry_integration
+    & (Join-Path $VivadoBin 'xelab.bat') --rangecheck work.telemetry_integration_tb work.glbl -L xpm -s telemetry_integration
     if ($LASTEXITCODE -ne 0) { throw 'Elaboration failed' }
     & (Join-Path $VivadoBin 'xsim.bat') telemetry_integration -runall
     if ($LASTEXITCODE -ne 0) { throw 'Simulation failed' }

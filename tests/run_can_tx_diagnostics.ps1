@@ -25,7 +25,7 @@ Push-Location $buildPath
 try {
     & (Join-Path $VivadoBin 'xvhdl.bat') --2008 can_pkg.vhd can_tx.vhd (Join-Path $PSScriptRoot 'can_tx_diagnostics_tb.vhd')
     if ($LASTEXITCODE -ne 0) { throw 'VHDL compilation failed' }
-    & (Join-Path $VivadoBin 'xelab.bat') work.can_tx_diagnostics_tb -s can_tx_diagnostics
+    & (Join-Path $VivadoBin 'xelab.bat') --rangecheck work.can_tx_diagnostics_tb -s can_tx_diagnostics
     if ($LASTEXITCODE -ne 0) { throw 'Elaboration failed' }
     & (Join-Path $VivadoBin 'xsim.bat') can_tx_diagnostics -runall
     if ($LASTEXITCODE -ne 0) { throw 'Simulation failed' }

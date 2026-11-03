@@ -7,7 +7,7 @@ Push-Location $buildPath
 try {
     & (Join-Path $VivadoBin 'xvhdl.bat') --2008 (Join-Path $repoPath 'flexray-interceptor-vivado.srcs/sources_1/new/control_snapshot.vhd') (Join-Path $PSScriptRoot 'control_snapshot_tb.vhd')
     if ($LASTEXITCODE -ne 0) { throw 'Compile failed' }
-    & (Join-Path $VivadoBin 'xelab.bat') work.control_snapshot_tb -s control_snapshot
+    & (Join-Path $VivadoBin 'xelab.bat') --rangecheck work.control_snapshot_tb -s control_snapshot
     if ($LASTEXITCODE -ne 0) { throw 'Elaboration failed' }
     & (Join-Path $VivadoBin 'xsim.bat') control_snapshot -runall
     if ($LASTEXITCODE -ne 0) { throw 'Simulation failed' }

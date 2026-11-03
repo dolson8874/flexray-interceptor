@@ -67,9 +67,9 @@ architecture syn of flexray_torque_intercept is
   signal tick_counter : integer range 0 to 7 := 0;
   signal rx_prev      : std_ulogic           := '1';
 
-  signal bit_counter      : integer range 0 to 2047 := 0; -- includes BSS
+  signal bit_counter      : integer range 0 to 9 := 0; -- BSS/byte phase, modulo 10
   signal data_bit_index   : integer range 0 to 2047 := 0; -- valid bits only
-  signal real_bit_counter : integer range 0 to 2047 := 0;
+  signal real_bit_counter : integer range 0 to 4095 := 0; -- 40 header + 2032 payload + CRC/tail
   signal num_bits         : integer range 0 to 2047 := 0;
 
   signal is_decoded       : std_ulogic;
@@ -151,7 +151,7 @@ begin
     variable crc_delta : std_ulogic_vector(23 downto 0);
     variable result_cmp         : boolean;
     variable tick_cnt           : integer range 0 to 7    := 0;
-    variable v_real_bit_counter : integer range 0 to 2047 := 0;
+    variable v_real_bit_counter : integer range 0 to 4095 := 0;
   begin
     if rst = '1' then
 
@@ -783,7 +783,8 @@ begin
         end if;
 
         -- Handle BSS	  
-        bit_counter <= bit_counter + 1;
+        if bit_counter = 9 then bit_counter <= 0;
+        else bit_counter <= bit_counter + 1; end if;
 
         if var_state > FSS and var_state <= CRC then
           if (bit_counter mod 10) < 2 then
@@ -791,7 +792,7 @@ begin
           end if;
         end if;
 
-        if var_state /= SKIP then
+        if var_state /= SKIP and var_state /= TSS then
           data_bit_index   <= data_bit_index + 1;
           real_bit_counter <= real_bit_counter + 1;
         end if;

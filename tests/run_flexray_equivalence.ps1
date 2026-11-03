@@ -20,7 +20,7 @@ Push-Location $buildPath
 try {
     & (Join-Path $VivadoBin 'xvhdl.bat') --2008 (Join-Path $repoPath "$sourceDir/flexray_pkg.vhd") baseline.vhd (Join-Path $repoPath "$sourceDir/flexray_torque_intercept.vhd") (Join-Path $PSScriptRoot 'flexray_timing_equivalence_tb.vhd')
     if ($LASTEXITCODE -ne 0) { throw 'Compile failed' }
-    & (Join-Path $VivadoBin 'xelab.bat') work.flexray_timing_equivalence_tb -s flexray_equivalence
+    & (Join-Path $VivadoBin 'xelab.bat') --rangecheck work.flexray_timing_equivalence_tb -s flexray_equivalence
     if ($LASTEXITCODE -ne 0) { throw 'Elaboration failed' }
     & (Join-Path $VivadoBin 'xsim.bat') flexray_equivalence -runall
     if ($LASTEXITCODE -ne 0) { throw 'Simulation failed' }

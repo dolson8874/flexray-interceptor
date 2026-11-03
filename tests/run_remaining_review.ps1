@@ -7,7 +7,7 @@ Push-Location $buildPath
 try {
     & (Join-Path $VivadoBin 'xvhdl.bat') --2008 (Join-Path $hdlPath 'flexray_pkg.vhd') (Join-Path $hdlPath 'flexray_rx.vhd') (Join-Path $hdlPath 'flexray_torque_intercept.vhd') (Join-Path $PSScriptRoot 'flexray_reference_pkg.vhd') (Join-Path $PSScriptRoot 'review_remaining_tb.vhd')
     if ($LASTEXITCODE -ne 0) { throw 'Compile failed' }
-    & (Join-Path $VivadoBin 'xelab.bat') work.review_remaining_tb -s review_remaining
+    & (Join-Path $VivadoBin 'xelab.bat') --rangecheck work.review_remaining_tb -s review_remaining
     if ($LASTEXITCODE -ne 0) { throw 'Elaboration failed' }
     & (Join-Path $VivadoBin 'xsim.bat') review_remaining -runall
     if ($LASTEXITCODE -ne 0) { throw 'Simulation failed' }
@@ -16,7 +16,7 @@ try {
     Copy-Item -LiteralPath xsim.log -Destination flexray_result.log
     & (Join-Path $VivadoBin 'xvhdl.bat') --2008 (Join-Path $hdlPath 'can_pkg.vhd') (Join-Path $hdlPath 'can_rx.vhd') (Join-Path $hdlPath 'can_tx.vhd') (Join-Path $hdlPath 'joystick_decoder.vhd') (Join-Path $PSScriptRoot 'can_reference_pkg.vhd') (Join-Path $PSScriptRoot 'review_can_length_tb.vhd')
     if ($LASTEXITCODE -ne 0) { throw 'CAN compile failed' }
-    & (Join-Path $VivadoBin 'xelab.bat') work.review_can_length_tb -s review_can_length
+    & (Join-Path $VivadoBin 'xelab.bat') --rangecheck work.review_can_length_tb -s review_can_length
     if ($LASTEXITCODE -ne 0) { throw 'CAN elaboration failed' }
     & (Join-Path $VivadoBin 'xsim.bat') review_can_length -runall
     if ($LASTEXITCODE -ne 0) { throw 'CAN simulation failed' }

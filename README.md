@@ -197,6 +197,8 @@ Run the local simulations with Vivado 2024.2 installed:
 
 ```powershell
 ./tests/run_all.ps1
+# Payload-length boundaries and stuck-low recovery only:
+./tests/run_bounds_tests.ps1
 # Reproduce the original cantx defects (expected to fail four diagnostics):
 ./tests/run_can_tx_diagnostics.ps1 -SourceRef cantx
 ```
@@ -237,12 +239,12 @@ Verification including the review fixes below and disabled LCA tests, on
 
 | Configuration | Routed WNS | Routed WHS | Setup/hold failing endpoints |
 | --- | ---: | ---: | ---: |
-| Telemetry disabled | +0.741 ns | +0.015 ns | 0 / 0 |
-| Telemetry enabled in verification project | +0.477 ns | +0.015 ns | 0 / 0 |
+| Telemetry disabled | +0.560 ns | +0.015 ns | 0 / 0 |
+| Telemetry enabled in verification project | +0.633 ns | +0.008 ns | 0 / 0 |
 
-Those implementation reports are in `tests/design_0_r3.sim/` and
-`tests/design_1_r3.sim/`, from separate full synthesis/implementation runs
-(`verify_design.tcl -tclargs 0 _r3` / `1 _r3`). Both
+Those implementation reports are in `tests/design_0_bounds.sim/` and
+`tests/design_1_bounds.sim/`, from separate full synthesis/implementation runs
+(`verify_design.tcl -tclargs 0 _bounds` / `1 _bounds`). Both
 methodology reports have zero findings. CDC reports retain CDC-15 warnings
 for the mailbox/FIFO clock-enable structures; request/acknowledgement behavior,
 data delay, and bus skew were checked rather than suppressing those warnings.
@@ -256,6 +258,12 @@ CAN wire/CRC/stuff/ACK and error handling, queue filtering/order/rate/expiry,
 FlexRay-to-CAN integration plus existing CAN control reception, serial-output
 steady-state equivalence after cache warmup over 16 input FlexRay frames,
 and atomic control snapshots/reset recovery.
+
+Local VHDL simulations enable XSim runtime range checking (`--rangecheck`).
+The boundary suite covers every seven-bit payload length (0 through 127 words),
+active interception of long frames up to 254 bytes, CRC rejection, and recovery
+after a 1 ms dominant input. BSS counters track a modulo-10 byte phase; the
+interceptor's full data-position counter includes header, maximum payload, and CRC.
 
 ## Review fixes and disabled LCA tests
 

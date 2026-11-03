@@ -8,7 +8,7 @@ Push-Location $buildPath
 try {
     & (Join-Path $VivadoBin 'xvhdl.bat') --2008 (Join-Path $sourcePath 'can_pkg.vhd') (Join-Path $sourcePath 'can_tx.vhd') (Join-Path $sourcePath 'can_rx.vhd') (Join-Path $PSScriptRoot 'can_reference_pkg.vhd') (Join-Path $PSScriptRoot 'can_protocol_tb.vhd')
     if ($LASTEXITCODE -ne 0) { throw 'Compile failed' }
-    & (Join-Path $VivadoBin 'xelab.bat') work.can_protocol_tb -s can_protocol
+    & (Join-Path $VivadoBin 'xelab.bat') --rangecheck work.can_protocol_tb -s can_protocol
     if ($LASTEXITCODE -ne 0) { throw 'Elaboration failed' }
     & (Join-Path $VivadoBin 'xsim.bat') can_protocol -runall
     if ($LASTEXITCODE -ne 0) { throw 'Simulation failed' }
