@@ -201,6 +201,8 @@ Run the local simulations with Vivado 2024.2 installed:
 ./tests/run_bounds_tests.ps1
 # SPI mode-0 byte streaming, CS aborts, and reset recovery:
 ./tests/run_spi_tests.ps1
+# Forwarding reset and complete log bytes using the actual FIFO IP model:
+./tests/run_frontend_tests.ps1
 # Reproduce the original cantx defects (expected to fail four diagnostics):
 ./tests/run_can_tx_diagnostics.ps1 -SourceRef cantx
 ```
@@ -241,12 +243,12 @@ Verification including the review fixes below and disabled LCA tests, on
 
 | Configuration | Routed WNS | Routed WHS | Setup/hold failing endpoints |
 | --- | ---: | ---: | ---: |
-| Telemetry disabled | +0.749 ns | +0.016 ns | 0 / 0 |
-| Telemetry enabled in verification project | +0.533 ns | +0.022 ns | 0 / 0 |
+| Telemetry disabled | +0.685 ns | +0.023 ns | 0 / 0 |
+| Telemetry enabled in verification project | +0.227 ns | +0.020 ns | 0 / 0 |
 
-Those implementation reports are in `tests/design_0_spi.sim/` and
-`tests/design_1_spi.sim/`, from separate full synthesis/implementation runs
-(`verify_design.tcl -tclargs 0 _spi` / `1 _spi`). Both
+Those implementation reports are in `tests/design_0_front.sim/` and
+`tests/design_1_front.sim/`, from separate full synthesis/implementation runs
+(`verify_design.tcl -tclargs 0 _front` / `1 _front`). Both
 methodology reports have zero findings. CDC reports retain CDC-15 warnings
 for the mailbox/FIFO clock-enable structures; request/acknowledgement behavior,
 data delay, and bus skew were checked rather than suppressing those warnings.
@@ -274,6 +276,13 @@ prefetched after a complete byte also survives a CS boundary. Clocks while CS is
 high do not complete bytes or request more FIFO data. An empty TX stream sends
 zero filler; warm reset clears buffered SPI state. The SPI suite checks partial
 lengths 1 through 7, continuous transfers, FIFO consumption, empty TX, and reset.
+
+The logging FIFO is configured as Standard_FIFO with an unregistered output.
+The frontend reads and captures its output before offering a stable byte to SPI;
+the last buffered byte remains available after the FIFO becomes empty. Reset
+flushes the prefetch and drives both forwarding outputs and enables to idle high.
+The frontend suite generates the actual FIFO simulation model from the saved XCI
+and checks reset, stalled consumption, and exact log frames including final CRC.
 
 ## Review fixes and disabled LCA tests
 

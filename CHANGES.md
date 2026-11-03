@@ -1,5 +1,36 @@
 # 수정 기록
 
+## 2026-11-03 — 반복 검토: 전달 경로 reset 및 실제 로그 FIFO
+
+- 기준 커밋: `f960425`.
+- 재현: dominant 전달/override 중 reset을 걸면 출력 레지스터가 이전 값을
+  유지하고 enable도 idle 값으로 돌아가지 않았다. reset에서 TX 두 개, RX,
+  enable 두 개를 기존 idle 값 1로 초기화하고 피드백 이력도 1로 채운다.
+- 재현: 실제 IP는 `Standard_FIFO`, embedded output register 미사용이다.
+  기존 코드는 읽기 요청과 같은 클록에 이전 `dout`을 전달하여 첫 로그 바이트부터
+  어긋났다. 읽기 요청 → 완료 데이터 캡처 → 소비 대기 단계를 추가했다.
+  마지막 FIFO 읽기로 empty가 되어도 보관된 마지막 바이트를 전달하며, stall 동안
+  데이터를 유지하고 reset에서는 보관 상태를 비운다.
+- 추가 재현: FIFO 순서를 고친 뒤 로그 프레임 끝에 불필요한 바이트가 남았다.
+  serializer가 마지막 CRC를 준비한 시점에 종료 상태로 전환하도록 경계를 수정했다.
+- 검증: 저장소의 실제 FIFO XCI에서 시뮬레이션 모델을 생성한다. 양방향 전달과
+  override의 warm reset, reset 후 첫 dominant 입력, 0~26바이트 페이로드의
+  로그 전체 바이트·정확한 길이·마지막 CRC·stall·reset flush를 확인했다.
+  변경 전 재현 로그는 `tests/frontend.sim/before_*_fix.log`에 보관했다.
+- 전체 회귀 11개 묶음 통과 (`ALL_LOCAL_SIMULATIONS_PASS`, 종료 코드 0,
+  `--rangecheck` 적용). 두 구성의 전체 합성·배치·배선도 통과했다.
+  결과 경로는 `tests/design_0_front.sim/`, `tests/design_1_front.sim/`이다.
+
+  | 구성 | WNS | WHS | setup / hold 실패 endpoint |
+  | --- | ---: | ---: | ---: |
+  | CAN 텔레메트리 비활성 | +0.685 ns | +0.023 ns | 0 / 0 |
+  | 검증 프로젝트에서만 활성 | +0.227 ns | +0.020 ns | 0 / 0 |
+
+- 두 구성 모두 methodology 지적 0건, DRC 오류 0건이다. 기존 DRC·CDC 경고와
+  별도로 두 routed checkpoint의 CDC 예외·데이터 경로·bus skew 재확인도 통과했다.
+  외부 I/O 타이밍 제약의 미완성 범위는 남아 있다. 보드·실차 적용과 비트스트림
+  생성은 하지 않았다.
+
 ## 2026-11-03 — 반복 검토: SPI 로그의 CS 중단 복구
 
 - 기준 커밋: `fba6445`.

@@ -278,7 +278,9 @@ begin
             next_state <= FS_PAYLOAD;
 
           when FS_PAYLOAD => -- 8
-            if send_idx = 11 + send_len then
+            -- FS_DONE transmits the final staged CRC byte. Leave PAYLOAD
+            -- when that byte is staged, before a synthetic extra byte is built.
+            if send_idx = 10 + send_len then
               next_state <= FS_DONE;
             else
               next_state <= FS_PAYLOAD;

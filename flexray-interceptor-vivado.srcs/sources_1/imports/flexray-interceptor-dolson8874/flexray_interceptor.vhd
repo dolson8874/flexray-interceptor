@@ -79,6 +79,9 @@ architecture syn of flexray_interceptor is
   signal fifo_dout  : std_logic_vector(7 downto 0);
   signal fifo_rd_en : std_ulogic;
   signal fifo_empty : std_ulogic;
+  type fifo_read_state_t is (READ_IDLE, READ_PENDING, READ_VALID);
+  signal fifo_read_state : fifo_read_state_t := READ_IDLE;
+  signal log_data : std_ulogic_vector(7 downto 0) := (others => '0');
   
   signal log_req      : std_ulogic := '0';  
   signal msg_latched  : work.flexray.message;
@@ -133,9 +136,26 @@ begin
   fifo_wr_en <= tx_ready when fifo_full = '0' else '0';
 
   -- fifo pop, SPI_SLAVE
-  send_log <= std_ulogic_vector(fifo_dout);
-  ready    <= '1' when (rx_valid = '1' and fifo_empty = '0') else '0';
-  fifo_rd_en <= '1' when (rx_valid = '1' and fifo_empty = '0') else '0';
+  -- Standard_FIFO has a clocked read output, not a FWFT head. Read first,
+  -- capture on the next clock, then hold the byte until SPI accepts it.
+  send_log <= log_data;
+  ready <= '1' when fifo_read_state = READ_VALID and rst = '0' else '0';
+  fifo_rd_en <= '1' when fifo_read_state = READ_IDLE and fifo_empty = '0' and rst = '0' else '0';
+  log_prefetch : process(clk, rst)
+  begin
+    if rst = '1' then
+      fifo_read_state <= READ_IDLE; log_data <= (others => '0');
+    elsif rising_edge(clk) then
+      case fifo_read_state is
+        when READ_IDLE =>
+          if fifo_empty = '0' then fifo_read_state <= READ_PENDING; end if;
+        when READ_PENDING =>
+          log_data <= std_ulogic_vector(fifo_dout); fifo_read_state <= READ_VALID;
+        when READ_VALID =>
+          if rx_valid = '1' then fifo_read_state <= READ_IDLE; end if;
+      end case;
+    end if;
+  end process;
 
   tx_0 <= s_tx_0;
   tx_1 <= s_tx_1;
@@ -214,8 +234,8 @@ begin
     variable bus_1_idle_counter : integer range 0 to 80;
   begin
     if rst = '1' then
-      tx_en_0 <= '0';
-      tx_en_1 <= '0';
+      tx_en_0 <= '1';
+      tx_en_1 <= '1';
 
       bus_0_idle_counter := 80;
       bus_1_idle_counter := 80;
@@ -252,9 +272,11 @@ begin
   begin
     if rst = '1' then
       rx <= '1';
+      s_tx_0 <= '1';
+      s_tx_1 <= '1';
 
-      tx_0_delayed <= (others => '0');
-      tx_1_delayed <= (others => '0');
+      tx_0_delayed <= (others => '1');
+      tx_1_delayed <= (others => '1');
     elsif rising_edge(clk) then
       tx_0_delayed <= tx_0_delayed(6 downto 0) & s_tx_0;
       tx_1_delayed <= tx_1_delayed(6 downto 0) & s_tx_1;
