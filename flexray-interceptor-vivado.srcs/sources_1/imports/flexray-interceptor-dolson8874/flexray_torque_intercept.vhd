@@ -3,6 +3,7 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 use work.flexray;
 entity flexray_torque_intercept is
+  generic (SYNC_TIMEOUT_CYCLES : positive := 8000000); -- 100 ms at 80 MHz
   port (
     clk    : in std_ulogic; -- Clock 8x higher than can bitrate
     rst    : in std_ulogic;
@@ -52,6 +53,14 @@ architecture syn of flexray_torque_intercept is
   signal enable_sync1, enable_sync2 : std_logic;
   signal sign_sync1, sign_sync2     : std_ulogic_vector(8 downto 0);
   signal torque_sync1, torque_sync2 : std_ulogic_vector(13 downto 0);
+  attribute ASYNC_REG : string;
+  attribute ASYNC_REG of enable_sync1, enable_sync2, sign_sync1, sign_sync2,
+    torque_sync1, torque_sync2 : signal is "TRUE";
+  -- Register the selected output bit before the CRC XOR network. The serial
+  -- bit is held for eight clocks, so this one-clock internal stage does not
+  -- change the transmitted bit or the CRC-field launch time.
+  signal override_crc_pending : std_ulogic := '0';
+  signal override_crc_bit : std_ulogic := '0';
   type state_type is (IDLE, TSS, FSS, HEADER, PAYLOAD, CRC, DONE, SKIP);
   signal state : state_type := IDLE;
 
@@ -64,6 +73,8 @@ architecture syn of flexray_torque_intercept is
   signal num_bits         : integer range 0 to 2047 := 0;
 
   signal is_decoded       : std_ulogic;
+  signal frame_checked, frame_valid : std_ulogic := '0';
+  signal cache_1_valid : std_ulogic := '0';
   signal decode_msg       : work.flexray.message;
   signal computed_crc     : std_ulogic_vector(23 downto 0) := b"111111101101110010111010";
   signal o_computed_crc   : std_ulogic_vector(23 downto 0) := b"111111101101110010111010";
@@ -74,7 +85,7 @@ architecture syn of flexray_torque_intercept is
   signal lkas_diff_counter : integer range -15 to 15;
   signal asl_gray_icon     : std_ulogic;
   
-  constant TEST_LCA : boolean := true;
+  constant TEST_LCA : boolean := false;
   -- D00:9   :0x7   
   -- D01:18  :0x02
   -- 3100:27 :0xe0
@@ -125,6 +136,9 @@ begin
     variable override_mask : data_t;
 
     variable lkas_ready                           : std_ulogic;
+    variable frame_in_sync : std_ulogic := '0';
+    variable frame_cache_1_valid : std_ulogic := '0';
+    variable frame_sign : std_ulogic_vector(8 downto 0) := (others => '0');
     variable lkas_enable                          : std_ulogic;
     variable lkas_enprev                          : std_ulogic;
     variable lkas_torque                          : std_ulogic_vector(13 downto 0);
@@ -134,6 +148,7 @@ begin
     variable lkas_moveH_EnTorqL_CruiseOnL_EntorqH : std_ulogic;
 
     variable v_computed_crc     : std_ulogic_vector(23 downto 0);
+    variable crc_delta : std_ulogic_vector(23 downto 0);
     variable result_cmp         : boolean;
     variable tick_cnt           : integer range 0 to 7    := 0;
     variable v_real_bit_counter : integer range 0 to 2047 := 0;
@@ -141,17 +156,27 @@ begin
     if rst = '1' then
 
       tx <= '1';
+      override <= '0';
+      tick_cnt := 0;
+      v_real_bit_counter := 0;
+      result_cmp := false;
       next_tx := '1';
       in_bss  := '0';
 
       is_overriding := '0';
 
       v_computed_crc := (others => '0');
+      crc_delta := (others => '0');
+      override_crc_pending <= '0';
+      override_crc_bit <= '0';
 
       override_data := (others => (others => '0'));
       override_mask := (others => (others => '0'));
 
       lkas_ready                           := '0';
+      frame_in_sync := '0';
+      frame_cache_1_valid := '0';
+      frame_sign := (others => '0');
       lkas_enable                          := '0';
       lkas_enprev                          := '0';
       lkas_torque                          := (others => '0');
@@ -162,6 +187,16 @@ begin
 
     elsif rising_edge(clk) then
 
+      override_crc_pending <= '0';
+      if override_crc_pending = '1' then
+        if (override_crc_bit xor v_computed_crc(23)) = '1' then
+          v_computed_crc := (v_computed_crc(22 downto 0) & '0') xor b"010111010110110111001011";
+        else
+          v_computed_crc := v_computed_crc(22 downto 0) & '0';
+        end if;
+        o_computed_crc <= v_computed_crc;
+      end if;
+
       result_cmp := (tick_cnt = 7) or -- Update tick counter
         (rx = '0' and rx_prev = '1' and state = IDLE) or -- Sync on first falling edge
         (rx = '1' and rx_prev = '0' and state = TSS); -- Sync on Frame Start Sequence
@@ -171,15 +206,21 @@ begin
         tick_cnt := tick_cnt + 1;
       end if;
 
-      lkas_ready := sign_sync2(7);
-
-      if lkas_enable = '0' and v_real_bit_counter <= 39 then
-        lkas_enable := enable_sync2;
-
-        if enable_sync2 = '1' then
+      -- Refresh permission during the header, including a falling enable.
+      -- Hold the decision through the payload/CRC so an already-started
+      -- modification finishes as a complete frame.
+      if real_bit_counter <= 39 then
+        frame_in_sync := in_sync;
+        frame_cache_1_valid := cache_1_valid;
+        frame_sign := sign_sync2;
+        if enable_sync2 = '0' or frame_in_sync = '0' then
+          lkas_enable := '0';
+        else
+          lkas_enable := '1';
           lkas_torque := torque_sync2;
         end if;
       end if;
+      lkas_ready := frame_sign(7);
 
       if tick_cnt = 0 then
         v_real_bit_counter := real_bit_counter;
@@ -191,10 +232,11 @@ begin
         -- Header of message passed, decide if we need to override
         if v_real_bit_counter >= 40 then
           lkas_cycle_counter := to_integer(unsigned(decode_msg.cycle_count)) mod 4;
-          lkas_counter       := to_integer(unsigned(decode_msg.cycle_count(5 downto 2))) - lkas_diff_counter;
+          lkas_counter       := (to_integer(unsigned(decode_msg.cycle_count(5 downto 2))) - lkas_diff_counter) mod 16;
             
           -- 0x1F 
-          if in_sync = '1' and lkas_enable = '1' and decode_msg.frame_id = b"00000011111" then
+          if frame_in_sync = '1' and lkas_enable = '1' and decode_msg.frame_id = b"00000011111"
+             and (lkas_cycle_counter /= 1 or frame_cache_1_valid = '1') then
 
             is_overriding      := '1';
 
@@ -239,7 +281,7 @@ begin
                 -- override_data(7) := x"00";	
                 -- bit 1 : 0 Above5KmHCruiseOnLkasH_Under5KmLCruiseOffLkasL == CruiseOn
                 if lkas_cruise_on = '1' then
-                  if 0 = to_integer(unsigned(decode_msg.cycle_count)) mod 12 then
+                  if work.flexray.cycle_phase_12(decode_msg.cycle_count, 0) then
                     override_data(7) := lkas_1F0_prev(1);
                   else
                     override_data(7) := b"000000" & lkas_cruise_on & '0';
@@ -309,7 +351,7 @@ begin
                 override_mask(10) := x"FF";
 
                 if lkas_cruise_on = '1' then
-                  if 1 = to_integer(unsigned(decode_msg.cycle_count)) mod 12 then
+                  if work.flexray.cycle_phase_12(decode_msg.cycle_count, 1) then
                     override_data(2) := lkas_1F1_prev(0);
                   else
                     override_data(2) := x"00";
@@ -352,23 +394,12 @@ begin
               end if;
 
             elsif lkas_cycle_counter = 3 then
+              -- Reserved/pass-through in the existing design. Do not create
+              -- unused replacement bytes or enable a previously dormant path.
               override_data := (others => (others => '0'));
               override_mask := (others => (others => '0'));
 
               is_overriding := '0';
-
-              -- override_data(9) := b"0000" & std_ulogic_vector(to_unsigned(lkas_counter, 4)) ( 3 downto 0);
-              override_data(9) := b"0000" & (std_ulogic_vector(to_unsigned(lkas_counter, 4))); -- vivado
-              override_mask(9) := x"FF";
-
-              override_data(10) := b"10000" & lkas_torque(10 downto 8);
-              override_mask(10) := x"FF";
-
-              override_data(11) := lkas_torque(7 downto 0);
-              override_mask(11) := x"FF";
-
-              override_data(8) := crc8_0x1D(override_data(9) & override_data(10) & override_data(11),x"DA");
-              override_mask(8) := x"FF";
 
               if v_real_bit_counter = 66 + num_bits then
                 -- override end
@@ -383,7 +414,7 @@ begin
 
 
             -- 0x3155 counter 
-          elsif in_sync = '1' and decode_msg.frame_id = b"00000110001"
+          elsif frame_in_sync = '1' and decode_msg.frame_id = b"00000110001"
             and 5 = to_integer(unsigned(decode_msg.cycle_count)) mod 16 then
 
             override_data := (others => (others => '0'));
@@ -406,7 +437,7 @@ begin
             end if;
             
             -- 0x31 counter 0
-          elsif in_sync = '1' and decode_msg.frame_id = b"00000110001"
+          elsif frame_in_sync = '1' and decode_msg.frame_id = b"00000110001"
             and 0 = lkas_cycle_counter then
 
             -- cruise on
@@ -424,13 +455,13 @@ begin
 
             -- LKAS Green line
             -- frame id=0x31 sync_id=1/8 00:pass 11:white 01:green 10:red 
-          elsif in_sync = '1' and decode_msg.frame_id = b"00000110001"
+          elsif frame_in_sync = '1' and decode_msg.frame_id = b"00000110001"
             and 1 = to_integer(unsigned(decode_msg.cycle_count)) mod 8 then
 
             override_data := (others => (others => '0'));
             override_mask := (others => (others => '0'));
             
-            if sign_sync2(5 downto 0) /= b"000000" or lkas_enable = '1' then
+            if frame_sign(5 downto 0) /= b"000000" or lkas_enable = '1' then
               is_overriding     := '1';
               
               if TEST_LCA and lkas_ready = '1' then
@@ -442,13 +473,13 @@ begin
               end if;
             end if;
             
-            if sign_sync2(4 downto 3) /= b"00" then
-              override_data(2) := b"000000" & sign_sync2(4 downto 3);
+            if frame_sign(4 downto 3) /= b"00" then
+              override_data(2) := b"000000" & frame_sign(4 downto 3);
               override_mask(2) := x"03";
             end if;
 
-            if sign_sync2(1 downto 0) /= b"00" then
-              override_data(3) := b"000000" & sign_sync2(1 downto 0);
+            if frame_sign(1 downto 0) /= b"00" then
+              override_data(3) := b"000000" & frame_sign(1 downto 0);
               override_mask(3) := x"03";
             end if;
 
@@ -456,15 +487,15 @@ begin
             asl_gray_icon <= decode_msg.data(9)(5);
 
             -- right blindSpot
-            if sign_sync2(5) = '1' then
+            if frame_sign(5) = '1' then
             end if;
 
             -- left blindSpot
-            if sign_sync2(2) = '1' then
+            if frame_sign(2) = '1' then
             end if;
             
             -- 0x31 counter 2 25hz
-          elsif TEST_LCA and in_sync = '1' and decode_msg.frame_id = b"00000110001"
+          elsif TEST_LCA and frame_in_sync = '1' and decode_msg.frame_id = b"00000110001"
             and 2 = to_integer(unsigned(decode_msg.cycle_count)) mod 8 then
 
             if lkas_ready = '1' then
@@ -485,7 +516,7 @@ begin
             
           -- 0x3b10 counter 0 50Hz 0x3b10
           -- 20250610 Test LFA below 50Km
-           elsif TEST_LCA and in_sync = '1' and decode_msg.frame_id = b"00000111011"
+           elsif TEST_LCA and frame_in_sync = '1' and decode_msg.frame_id = b"00000111011"
              and (lkas_cycle_counter = 0) then
 
              override_data := (others => (others => '0'));
@@ -545,7 +576,7 @@ begin
             
           -- TEST below 50Km
           -- frame id=0x0d sync_id=0/4 
-          elsif TEST_LCA and in_sync = '1' and decode_msg.frame_id = b"00000001101" and
+          elsif TEST_LCA and frame_in_sync = '1' and decode_msg.frame_id = b"00000001101" and
             0 = lkas_cycle_counter then
 
             if lkas_ready = '1' then
@@ -561,7 +592,7 @@ begin
             end if;            
 
           -- frame id=0x0d sync_id=1/4 
-          elsif in_sync = '1' and decode_msg.frame_id = b"00000001101" and
+          elsif frame_in_sync = '1' and decode_msg.frame_id = b"00000001101" and
             1 = lkas_cycle_counter then
 
             if v_real_bit_counter = 40 then
@@ -629,8 +660,12 @@ begin
               end if;
 
             elsif v_real_bit_counter >= 40 + num_bits and v_real_bit_counter <= 63 + num_bits then
-              -- CRC 24bit
-              next_tx       := v_computed_crc(v_computed_crc'left - (v_real_bit_counter - 40 - num_bits));
+              -- Apply the CRC difference to the received CRC, retaining any
+              -- input CRC error instead of turning a corrupt frame valid.
+              if v_real_bit_counter = 40 + num_bits then
+                crc_delta := computed_crc xor v_computed_crc;
+              end if;
+              next_tx := rx xor crc_delta(23 - (v_real_bit_counter - 40 - num_bits));
               is_overriding := '1';
             elsif v_real_bit_counter = 64 + num_bits then -- FES
               is_overriding := '0';
@@ -643,11 +678,8 @@ begin
             -- calc CRC 24bit
             if is_overriding = '1' then
               if v_real_bit_counter >= 40 and v_real_bit_counter <= 40 + num_bits - 1 then
-                if (next_tx xor v_computed_crc(23)) = '1' then
-                  v_computed_crc := (v_computed_crc(22 downto 0) & '0') xor b"010111010110110111001011";
-                else
-                  v_computed_crc := (v_computed_crc(22 downto 0) & '0');
-                end if;
+                override_crc_bit <= next_tx;
+                override_crc_pending <= '1';
               end if;
             end if;
 
@@ -685,6 +717,8 @@ begin
   begin
     if rst = '1' then
       result_cmp := false;
+      tick_counter <= 0;
+      rx_prev <= '1';
 
     elsif rising_edge(clk) then
       rx_prev <= rx;
@@ -712,6 +746,8 @@ begin
       is_decoded       <= '0';
       bit_counter      <= 0;
       real_bit_counter <= 0;
+      num_bits <= 0;
+      frame_checked <= '0'; frame_valid <= '0';
       data_bit_index   <= 0;
       idle_counter     <= 0;
 
@@ -727,6 +763,7 @@ begin
       computed_hdr_crc <= b"00000011010";
 
     elsif rising_edge(clk) then
+      frame_checked <= '0'; frame_valid <= '0';
       if tick_counter = 2 then
 
         var_state := state;
@@ -863,6 +900,12 @@ begin
           end if;
 
         when DONE =>
+          if data_bit_index = 0 then
+            frame_checked <= '1';
+            if computed_crc = decode_msg.crc and decode_msg.header_crc = computed_hdr_crc then
+              frame_valid <= '1';
+            end if;
+          end if;
           if computed_crc = decode_msg.crc and decode_msg.header_crc = computed_hdr_crc then
             is_decoded <= '1';
           end if;
@@ -883,51 +926,57 @@ begin
   
   
   prev_copy : process (clk, rst)
-    variable sync_counter : integer range 0 to 32;
-
+    variable age : natural range 0 to SYNC_TIMEOUT_CYCLES := 0;
+    variable cache_age : natural range 0 to SYNC_TIMEOUT_CYCLES := 0;
+    variable phase : natural range 0 to 3;
+    variable expected_counter : natural range 0 to 15;
   begin
-    if rising_edge(clk) then
-      if rst = '1' then
-        sync_counter := 0;
-        in_sync           <= '0';
-        lkas_diff_counter <= 0;
-
-        lkas_1F0_prev <= (others => (others => '0'));
-        lkas_1F1_prev <= (others => (others => '0'));
-      else
-        if is_decoded = '1' then
-          if decode_msg.frame_id = b"00000011111" and decode_msg.data(25) = x"60" then
-
-            sync_counter := to_integer(unsigned(decode_msg.cycle_count)) mod 4;
-
-            case sync_counter is
-              when 0 =>
-                lkas_1F0_prev(0) <= std_ulogic_vector(decode_msg.data(6));
-                lkas_1F0_prev(1) <= std_ulogic_vector(decode_msg.data(7));
-
-                if decode_msg.data(15) = x"23" and decode_msg.data(16) = x"28" then
-                  lkas_diff_counter <= to_integer(unsigned(decode_msg.cycle_count(5 downto 2))) - to_integer(unsigned(decode_msg.data(1)(3 downto 0)));
-                  in_sync           <= '1';
+    if rst = '1' then
+      age := 0; cache_age := 0;
+      in_sync <= '0'; lkas_diff_counter <= 0; cache_1_valid <= '0';
+      lkas_1F0_prev <= (others => (others => '0'));
+      lkas_1F1_prev <= (others => (others => '0'));
+    elsif rising_edge(clk) then
+      if age < SYNC_TIMEOUT_CYCLES then age := age + 1; end if;
+      if cache_age < SYNC_TIMEOUT_CYCLES then cache_age := cache_age + 1; end if;
+      if cache_age = SYNC_TIMEOUT_CYCLES then cache_1_valid <= '0'; end if;
+      if age = SYNC_TIMEOUT_CYCLES then
+        in_sync <= '0'; cache_1_valid <= '0';
+      end if;
+      if frame_checked = '1' and decode_msg.frame_id = b"00000011111" then
+        if frame_valid = '0' or unsigned(decode_msg.payload_length) < 13 then
+          in_sync <= '0'; cache_1_valid <= '0';
+        elsif decode_msg.data(25) = x"60" then
+          phase := to_integer(unsigned(decode_msg.cycle_count(1 downto 0)));
+          case phase is
+            when 0 =>
+              age := 0; -- only a fresh reference frame refreshes synchronization
+              lkas_1F0_prev(0) <= std_ulogic_vector(decode_msg.data(6));
+              lkas_1F0_prev(1) <= std_ulogic_vector(decode_msg.data(7));
+              if decode_msg.data(15) = x"23" and decode_msg.data(16) = x"28" then
+                lkas_diff_counter <= (to_integer(unsigned(decode_msg.cycle_count(5 downto 2))) -
+                  to_integer(unsigned(decode_msg.data(1)(3 downto 0)))) mod 16;
+                in_sync <= '1';
+              elsif in_sync = '1' then
+                expected_counter := (to_integer(unsigned(decode_msg.cycle_count(5 downto 2))) - lkas_diff_counter) mod 16;
+                if to_integer(unsigned(decode_msg.data(1)(3 downto 0))) /= expected_counter then
+                  in_sync <= '0'; cache_1_valid <= '0';
                 end if;
-
-              when 1 =>
-                lkas_1F1_prev(0) <= std_ulogic_vector(decode_msg.data(2));
-                lkas_1F1_prev(1) <= std_ulogic_vector(decode_msg.data(3));
-                lkas_1F1_prev(2) <= std_ulogic_vector(decode_msg.data(4));
-                lkas_1F1_prev(3) <= std_ulogic_vector(decode_msg.data(5));
-                lkas_1F1_prev(4) <= std_ulogic_vector(decode_msg.data(6));
-                lkas_1F1_prev(5) <= std_ulogic_vector(decode_msg.data(7));
-                lkas_1F1_prev(6) <= std_ulogic_vector(decode_msg.data(8));
-                lkas_1F1_prev(7) <= std_ulogic_vector(decode_msg.data(9));
-                lkas_1F1_prev(8) <= std_ulogic_vector(decode_msg.data(10));
-              when others =>
-                null;
-            end case;
-          end if;
+              end if;
+            when 1 =>
+              for i in 0 to 8 loop
+                lkas_1F1_prev(i) <= std_ulogic_vector(decode_msg.data(i + 2));
+              end loop;
+              -- A cycle-1 cache has its own expiry; other phases cannot keep
+              -- an old snapshot alive when this multiplexed frame is absent.
+              if in_sync = '1' and age < SYNC_TIMEOUT_CYCLES then
+                cache_1_valid <= '1'; cache_age := 0;
+              end if;
+            when others => null;
+          end case;
         end if;
       end if;
     end if;
-
   end process;
 
 end architecture syn;

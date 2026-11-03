@@ -57,16 +57,19 @@ set_property DRIVE 8 [get_ports LED4]
 set_property IOSTANDARD LVCMOS33 [get_ports BDBUS2]
 set_property DRIVE 8 [get_ports BDBUS2]
 
-#set_property CLOCK_DEDICATED_ROUTE FALSE [get_nets RstBtn_IBUF]
-#set_property CLOCK_DEDICATED_ROUTE FALSE [get_nets -hierarchical *RstBtn_IBUF]
-set_property CLOCK_DEDICATED_ROUTE FALSE [get_nets -hierarchical RstBtn_IBUF]
+# RstBtn drives reset inputs; it is not a fabric clock. No dedicated-clock
+# routing exception is needed for this reset net.
 
 set_property PACKAGE_PIN V17 [get_ports LED5]
 set_property IOSTANDARD LVCMOS33 [get_ports LED5]
 
 set_property DRIVE 8 [get_ports LED5]
 
-set_false_path -from [get_clocks -of_objects [get_pins bendbeam_i/clk_wiz_0/inst/mmcm_adv_inst/CLKOUT2]] -to [get_clocks -of_objects [get_pins bendbeam_i/clk_wiz_0/inst/mmcm_adv_inst/CLKOUT0]]
+# Both clocks originate from the same MMCM. Keep their transfers timed;
+# a clock-wide false path previously hid setup/hold checks on these paths.
+# XPM telemetry FIFO/CDC blocks supply their own scoped CDC constraints.
+
+# Scoped control-mailbox exceptions are in control_snapshot_cdc.xdc.
 
 
 set_property PACKAGE_PIN T15 [get_ports LED3]

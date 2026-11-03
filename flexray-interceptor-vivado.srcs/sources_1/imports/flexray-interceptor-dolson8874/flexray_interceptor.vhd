@@ -65,7 +65,6 @@ architecture syn of flexray_interceptor is
   signal ready_dadc : std_ulogic;
 
   -- for flexray_log module
-  signal log_ready : std_ulogic;
   signal log_busy  : std_ulogic;
   signal log_bus   : std_ulogic;
   -- signal log_msg :  work.flexray.message;
@@ -83,8 +82,6 @@ architecture syn of flexray_interceptor is
   
   signal log_req      : std_ulogic := '0';  
   signal msg_latched  : work.flexray.message;
-  signal pend_valid   : std_ulogic := '0';
-  signal pend_msg     : work.flexray.message;
   
   
   constant TEST_MODE : boolean := false;
@@ -205,45 +202,11 @@ begin
 
   
   
-  flexray_rx_log : process (clk, rst)
-    variable ready_prev : std_ulogic;
-    variable tmpid      : integer;
-  begin
-    if rst = '1' then
-      log_ready <= '0';
-      ready_prev := '0';
-      log_req    <= '0';
-      pend_valid <= '0';
-      log_bus    <= '0';
-
-    elsif rising_edge(clk) then
-    
-      if ready_dadc='1' and ready_prev='0' then
-        if log_req='0' and log_busy='0' then
-          msg_latched <= msg_dadc;
-          log_req     <= '1';  
-          log_bus     <= '1';          
-        else
-          pend_msg   <= msg_dadc;
-          pend_valid <= '1';
-        end if;
-      end if;
-
-      if log_busy='1' and log_req='1' then
-        log_req <= '0';               
-        if pend_valid='1' then
-          msg_latched <= pend_msg;
-          pend_valid  <= '0';
-          log_req     <= '1';
-          log_bus     <= '1';
-        end if;
-      end if;
-
-      ready_prev := ready_dadc; 
-      
-    end if;
-
-  end process;
+  log_dispatch : entity work.flexray_log_dispatch port map (
+    clk => clk, rst => rst, frame_valid => ready_dadc, frame => msg_dadc,
+    log_busy => log_busy, log_req => log_req, log_frame => msg_latched,
+    dropped => open);
+  log_bus <= '1';
   
 
   manage_enables : process (clk, rst)

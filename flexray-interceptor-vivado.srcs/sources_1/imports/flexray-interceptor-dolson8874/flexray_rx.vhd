@@ -41,6 +41,8 @@ begin
   begin
     if rst = '1' then
 	  result_cmp := false;
+      tick_counter <= 0;
+      rx_prev <= '1';
 	  
     elsif rising_edge(clk) then
       rx_prev <= rx;
@@ -71,6 +73,7 @@ begin
       ready <= '0';
       bit_counter <= 0;
       data_bit_index <= 0;
+	  num_bits <= 0;
 	  idle_counter <= 0;
 
       tmp_msg.flags          <= (others => '0');

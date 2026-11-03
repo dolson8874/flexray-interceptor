@@ -3,6 +3,7 @@ use ieee.numeric_std.all;
 use ieee.std_logic_1164.all;
 
 entity joystick_decoder is
+  generic (ENABLE_CAN_TELEMETRY : boolean := false);
   port (
     clk    : in std_ulogic;
     rst    : in std_ulogic;
@@ -13,34 +14,13 @@ entity joystick_decoder is
     enable : out std_ulogic;
     relay  : out std_ulogic;
     enCan  : out std_ulogic;
-    debug  : out std_ulogic);
+    debug  : out std_ulogic;
+    telemetry_valid : in std_ulogic := '0';
+    telemetry_data : in std_ulogic_vector(78 downto 0) := (others => '0');
+    telemetry_ready : out std_ulogic := '0');
 end joystick_decoder;
 
 architecture syn of joystick_decoder is
-
-  component can_rx is
-    port (
-      clk   : in std_ulogic;
-      rst   : in std_ulogic;
-      rx    : in std_ulogic;
-      tx    : out std_ulogic;
-      debug : out std_ulogic;
-      msg   : out work.can.message;
-      ready : out std_ulogic);
-  end component can_rx;
-
-  component can_tx is
-    port (
-      clk : in std_ulogic; -- Clock 8x higher than can bitrate
-      rst : in std_ulogic;
-
-      ready : in std_ulogic;
-      msg   : in work.can.message;
-
-      busy : out std_ulogic;
-      tx   : out std_ulogic;
-      done : inout std_ulogic);
-  end component can_tx;
 
   -- Poly 0x1D, crc 8bit, data 32bit  
   function crc8_4(
@@ -74,6 +54,11 @@ architecture syn of joystick_decoder is
   signal ibusy    : std_ulogic;
   signal omsg     : work.can.message;
   signal ready_tx : std_ulogic;
+  signal tx_can_rx, tx_can_tx, active_tx, ack_allowed : std_ulogic;
+  signal tx_success, tx_arblost, tx_ackerr, tx_biterr : std_ulogic;
+  signal tx_state, tx_retries : std_ulogic_vector(3 downto 0);
+  attribute MARK_DEBUG : string;
+  attribute MARK_DEBUG of tx_success, tx_arblost, tx_ackerr, tx_biterr, tx_state, tx_retries : signal is "TRUE";
 
   signal can_received    : std_ulogic;
   signal counter_10ms_en : std_ulogic;
@@ -88,9 +73,36 @@ architecture syn of joystick_decoder is
   signal hb_led   : std_ulogic := '0';  
 
 begin
-  rx_obj : can_rx PORT map (clk => clk, rst => rst, rx => rx, ready => ready, msg => msg, tx => tx);
-  --tx_obj : can_tx port map (clk => clk, rst => rst, ready => ready_tx, 
-  --                           msg => omsg, busy => ibusy , tx => tx, done => idone); 
+  ack_allowed <= not active_tx;
+  rx_obj : entity work.can_rx port map (
+    clk => clk, rst => rst, rx => rx, ready => ready, msg => msg,
+    tx => tx_can_rx, debug => open, ack_enable => ack_allowed);
+  tx <= tx_can_tx and tx_can_rx;
+  telemetry_enabled : if ENABLE_CAN_TELEMETRY generate
+    tx_obj : entity work.can_tx port map (
+      clk => clk, rst => rst, rx => rx, ready => ready_tx, msg => omsg,
+      busy => ibusy, tx => tx_can_tx, done => idone, active => active_tx,
+      success => tx_success, dbg_state => tx_state, dbg_arblost => tx_arblost,
+      dbg_ack_err => tx_ackerr, dbg_bit_err => tx_biterr, retry_count => tx_retries);
+    telemetry_ready <= not ibusy and not ready_tx and not rst;
+    schedule_tx : process(clk, rst)
+    begin
+      if rst = '1' then
+        ready_tx <= '0'; omsg.id <= (others => '0');
+        omsg.len <= (others => '0'); omsg.dat <= (others => '0');
+      elsif rising_edge(clk) then
+        ready_tx <= '0';
+        if telemetry_valid = '1' and ibusy = '0' and ready_tx = '0' then
+          omsg.id <= telemetry_data(78 downto 68);
+          omsg.len <= telemetry_data(67 downto 64);
+          omsg.dat <= telemetry_data(63 downto 0); ready_tx <= '1';
+        end if;
+      end if;
+    end process;
+  end generate;
+  telemetry_disabled : if not ENABLE_CAN_TELEMETRY generate
+    tx_can_tx <= '1'; active_tx <= '0'; telemetry_ready <= '0';
+  end generate;
 
   -- debug <= not can_received;
   debug <= hb_led;
@@ -156,6 +168,7 @@ begin
       prev_counter := (others => '0');
       crc_data     := (others => '0');
       enable_alive <= '0';
+      enable_wd_counter <= 0;
       
     elsif rising_edge(clk) then
       
@@ -173,7 +186,7 @@ begin
           -- dat = [ 0xeb, 0xff, 0xff, 0x23,    0x28, 0x00, 0x00, 0x00 ]
           --        63~56  55~48 47~40 39~32   31~24  23~16 15~8  7~0
 
-            if crc_data = msg.dat(63 downto 56) then
+            if unsigned(msg.len) = 8 and crc_data = msg.dat(63 downto 56) then
             -- Decode msg from the joystick
               torque <= msg.dat(37 downto 24);
               enable <= msg.dat(39);
@@ -190,7 +203,7 @@ begin
           -- dat = [ 0xeb, 0xff, 0xff, 0x23,    0x28, 0x00, 0x00, 0x00 ]
           --        63~56  55~48 47~40 39~32   31~24  23~16 15~8  7~0
 
-            if crc_data = msg.dat(63 downto 56) then
+            if unsigned(msg.len) = 8 and crc_data = msg.dat(63 downto 56) then
 
               -- Decode msg from the joystick
               sign   <= relay_ctrl & msg.dat(15 downto 8);
@@ -199,12 +212,14 @@ begin
               enable <= '0';
             end if;
 
-            -- check can health 
-            if prev_counter = msg.dat(55 downto 48) then
-              can_received <= '0';
-            else
-              can_received <= '1';
-              prev_counter := msg.dat(55 downto 48);
+            -- Only a valid application message with a changed counter can
+            -- refresh bus health. A corrupt message cannot advance history.
+            can_received <= '0';
+            if crc_data = msg.dat(63 downto 56) and unsigned(msg.len) = 8 then
+              if prev_counter /= msg.dat(55 downto 48) then
+                can_received <= '1';
+                prev_counter := msg.dat(55 downto 48);
+              end if;
             end if;
           end if;
 

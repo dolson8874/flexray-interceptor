@@ -138,3 +138,165 @@ The design places two FlexRay PHYs between vehicle bus segments to provide **tra
 | GPIO13	     | V3		   | SMAW200-20C | 8            |
 | GPIO14	     | V2		   | SMAW200-20C | 7            |
 
+## Local CAN telemetry development
+
+```mermaid
+flowchart LR
+  FR[FlexRay PHY inputs] --> Bridge[flexray_interceptor: bridge]
+  Bridge --> Out[FlexRay PHY outputs]
+  Bridge -->|original Port-B input| Modify[flexray_torque_intercept]
+  Modify -->|override and serial bit| Bridge
+  Bridge -->|Port-A output stream| LogRX[flexray_rx]
+  LogRX --> Log[flexray_log]
+  Log --> LogFIFO[Logging FIFO]
+  LogFIFO --> SPI[SPI_SLAVE / host]
+  CANRX[CAN transceiver RXD] --> Decoder[can_rx / joystick_decoder]
+  Decoder --> Mailbox[control_snapshot]
+  Mailbox --> Modify
+  Bridge -->|original Port-B input| Observe[Telemetry flexray_rx]
+  Observe --> Select[Frame / cycle / byte filter]
+  Select --> Queue[XPM async FIFO and expiry]
+  Queue --> CANTX[can_tx]
+  CANTX --> CANTXD[CAN transceiver TXD]
+  Decoder -->|ACK for external valid frames| CANTXD
+```
+
+CAN telemetry is disabled by default in both `flexray_can_telemetry_0.ENABLED`
+and `joystick_decoder_0.ENABLE_CAN_TELEMETRY`. No telemetry identifier or data
+mapping has been selected for the vehicle yet. Test identifiers are test vectors.
+
+The observation path reads the original Port-B input through
+`flexray_interceptor_0/rx`. `flexray_rx` checks header/frame CRCs, then the
+collector selects a frame ID, a masked cycle value, and up to eight payload
+bytes. `BYTE_0` becomes CAN byte 0, transmitted first; unused CAN bytes are zero.
+Short payloads are rejected. This path does not backpressure the FlexRay bridge.
+
+An XPM asynchronous FIFO transfers complete messages from 80 MHz to the CAN
+clock domain. Full-queue samples are dropped, with a saturating counter.
+Source-clock timestamps cross with XPM Gray synchronization; expired queued
+messages are discarded, with a separate counter. Defaults permit one capture
+per 8,000,000 source clocks and expire samples after 8,000,000 source clocks
+(100 ms at 80 MHz). A transmitter waiting for bus idle also has a bounded wait.
+
+Before enabling telemetry, configure `FRAME_ID`, `CYCLE_MASK`, `CYCLE_VALUE`,
+`CAN_ID`, `BYTE_COUNT`, `BYTE_0` through `BYTE_7`, `MIN_CAPTURE_CYCLES`, and
+`MAX_AGE_CYCLES` on `flexray_can_telemetry_0` in the block design. Then enable
+both generics and regenerate the block design outputs. The selected IDs, fields,
+period, and bus must be confirmed before board validation.
+
+The transmitter supports standard 11-bit classic CAN data frames with DLC 0–8,
+CRC/stuffing, external ACK checking, arbitration-loss release, and bounded
+retries. Requests while busy cannot overwrite the active frame. The integrated
+receiver suppresses ACK/delivery for its own transmission. Extended IDs, remote
+frames, CAN FD, active error flags, and complete ISO error-confinement/bus-off
+behavior are not implemented. Simulation coverage is not protocol certification.
+The existing MMCM CAN clock is retained: approximately 6.382978 MHz, or
+797.872 kbps with eight clocks per CAN bit.
+
+Run the local simulations with Vivado 2024.2 installed:
+
+```powershell
+./tests/run_all.ps1
+# Reproduce the original cantx defects (expected to fail four diagnostics):
+./tests/run_can_tx_diagnostics.ps1 -SourceRef cantx
+```
+
+For local full-design synthesis, placement, routing, CDC, DRC, utilization, and
+timing reports, use the following commands. They create separate projects under
+the ignored `tests/design_*.sim` directories, and do not generate a bitstream
+or program a board. The second command enables telemetry only in its temporary
+verification project. Reports belong to that configuration, not automatically
+to an existing bitstream.
+
+```powershell
+& C:/Xilinx/Vivado/2024.2/bin/vivado.bat -mode batch -nojournal -nolog -notrace -source scripts/verify_design.tcl -tclargs 0
+& C:/Xilinx/Vivado/2024.2/bin/vivado.bat -mode batch -nojournal -nolog -notrace -source scripts/verify_design.tcl -tclargs 1
+```
+
+The timing change registers the selected override bit before the frame CRC XOR
+network. Cycle-modulo-12 phase checks use a direct six-bit decode, exhaustively
+checked against integer remainder for all 64 cycle values and both used phases.
+Steady-state serial outputs are compared against `cb31f52` with the
+same disabled LCA test mode by `run_flexray_equivalence.ps1`. Comparison starts
+after the initial cache warmup; fault-handling changes have separate tests.
+The clock-wide false path between related MMCM
+clocks was removed so those transfers remain timed. External I/O timing still
+requires the board/transceiver timing requirements; internal timing closure
+alone does not validate the external interfaces.
+
+CAN control outputs now cross through `control_snapshot_0`: a toggle/acknowledge
+mailbox holds torque, status, and enable as one 24-bit word until the 80 MHz
+domain captures it. Intermediate updates coalesce into the next snapshot.
+Reset asserts asynchronously and releases synchronously in each domain.
+Only the first toggle synchronizer stages have false-path exceptions; the
+bundled data path and its skew are bounded to 12.5 ns. Mailbox atomicity,
+latest-value delivery, reset, and recovery are tested separately.
+
+Verification including the review fixes below and disabled LCA tests, on
+2026-11-03, Vivado 2024.2, `xa7s50csga324-1Q`:
+
+| Configuration | Routed WNS | Routed WHS | Setup/hold failing endpoints |
+| --- | ---: | ---: | ---: |
+| Telemetry disabled | +0.741 ns | +0.015 ns | 0 / 0 |
+| Telemetry enabled in verification project | +0.477 ns | +0.015 ns | 0 / 0 |
+
+Those implementation reports are in `tests/design_0_r3.sim/` and
+`tests/design_1_r3.sim/`, from separate full synthesis/implementation runs
+(`verify_design.tcl -tclargs 0 _r3` / `1 _r3`). Both
+methodology reports have zero findings. CDC reports retain CDC-15 warnings
+for the mailbox/FIFO clock-enable structures; request/acknowledgement behavior,
+data delay, and bus skew were checked rather than suppressing those warnings.
+The DRC reports have no errors but retain warnings, including logging BRAM
+asynchronous controls, LUT pairing, and nets without routable loads.
+External inputs/outputs still lack complete board-level timing
+constraints. No bitstream or hardware validation is included in these results.
+
+Simulation coverage includes the original four CAN defects, full
+CAN wire/CRC/stuff/ACK and error handling, queue filtering/order/rate/expiry,
+FlexRay-to-CAN integration plus existing CAN control reception, serial-output
+steady-state equivalence after cache warmup over 16 input FlexRay frames,
+and atomic control snapshots/reset recovery.
+
+## Review fixes and disabled LCA tests
+
+The second review's CRC preservation, frame snapshots, per-header torque update,
+and CAN length validation changes are recorded in [CHANGES.md](CHANGES.md).
+
+`TEST_LCA` is false. Low-speed LCA test patches are disabled; the existing
+production LKAS/HUD branches remain. The cycle-3 replacement branch remains
+pass-through, and its unused replacement-byte construction was removed.
+
+Enable revocation is accepted during each frame header, without depending on
+receipt of a later cycle-3 frame. A payload already being modified completes
+with its CRC before a new header adopts changed permission/synchronization.
+Four-bit counters use modular arithmetic across cycle wraparound.
+Each enabled header captures the latest torque, including after synchronization
+recovery and when cycle-3 frames are missing. The command stays fixed throughout
+the payload and CRC. Cache validity and HUD commands use the same frame snapshot
+policy. The outgoing CRC applies the original/modified CRC difference to the
+received CRC, preserving input errors.
+
+CRC-validated reference frames (`0x1F`, cycle modulo 4 = 0, marker B25 = 0x60)
+refresh synchronization. Reference state and the cycle-1 cached data expire
+independently after `SYNC_TIMEOUT_CYCLES` (default 8,000,000 clocks, 100 ms at
+80 MHz). A corrupt/short relevant frame or inconsistent reference counter
+invalidates synchronization/cache. Neutral reference bytes 0x23/0x28 permit
+reacquisition. Cycle-1 modification waits until its own valid cache exists.
+Other frame phases and held completion flags cannot keep old state alive.
+
+`flexray_log_dispatch` retains one active and one pending frame and drains the
+pending entry when logging becomes idle, even without a new frame arrival.
+When both slots are occupied it drops new arrivals in order; a saturating
+drop counter is available at its module port (not connected to the host).
+
+CAN HUD health requires application CRC success, DLC 8, and a changed counter.
+Rejected packets cannot advance counter history. Warm reset clears the CAN
+watchdog and FlexRay bit/sampling phase state.
+
+`tests/run_review_regressions.ps1` covers enable revocation with missing cycle 3,
+CRC/counter loss, independent reference/cache expiry, counter wraparound,
+warm-reset recovery, disabled LCA patches, pending log drain/order, overflow,
+concurrent arrival/dispatch, CRC-valid completion after mid-frame revocation,
+and fresh-command capture after reacquisition. The integration suite also checks corrupt-HUD
+health rejection/recovery and an expired CAN watchdog across warm reset.
+
