@@ -35,209 +35,100 @@ entity SPI_SLAVE is
 end entity;
 
 architecture RTL of SPI_SLAVE is
-
     constant BIT_CNT_WIDTH : natural := natural(ceil(log2(real(WORD_SIZE))));
-
-    signal sclk_meta          : std_ulogic;
-    signal cs_n_meta          : std_ulogic;
-    signal mosi_meta          : std_ulogic;
-    signal sclk_reg           : std_ulogic;
-    signal cs_n_reg           : std_ulogic;
-    signal mosi_reg           : std_ulogic;
-    signal spi_clk_reg        : std_ulogic;
-    signal spi_clk_redge_en   : std_ulogic;
-    signal spi_clk_fedge_en   : std_ulogic;
-    signal bit_cnt            : unsigned(BIT_CNT_WIDTH-1 downto 0);
-    signal bit_cnt_max        : std_ulogic;
-    signal last_bit_en        : std_ulogic;
-    signal load_data_en       : std_ulogic;
-    signal data_shreg         : std_ulogic_vector(WORD_SIZE-1 downto 0);
-    -- Preserve the prefetched TX word while the shared shift register receives
-    -- MOSI. An aborted transaction must retry this word, not the shifted data.
-    signal tx_word            : std_ulogic_vector(WORD_SIZE-1 downto 0);
-    signal slave_ready        : std_ulogic;
-    signal shreg_busy         : std_ulogic;
-    signal rx_data_vld        : std_ulogic;
-
+    signal sclk_meta, cs_n_meta, mosi_meta : std_ulogic;
+    signal sclk_reg, cs_n_reg, mosi_reg : std_ulogic;
+    signal spi_clk_reg : std_ulogic := '0';
+    signal spi_clk_redge_en, spi_clk_fedge_en : std_ulogic;
+    signal bit_cnt : unsigned(BIT_CNT_WIDTH-1 downto 0) := (others => '0');
+    signal rx_shift : std_ulogic_vector(WORD_SIZE-1 downto 0) := (others => '0');
+    signal tx_shift, tx_word : std_ulogic_vector(WORD_SIZE-1 downto 0) := (others => '0');
+    signal tx_valid, active_valid, completed : std_ulogic := '0';
+    signal complete_word, slave_ready : std_ulogic;
+    attribute ASYNC_REG : string;
+    attribute SHREG_EXTRACT : string;
+    attribute IOB : string;
+    attribute IOB of MISO : signal is "TRUE";
+    attribute ASYNC_REG of sclk_meta, sclk_reg, cs_n_meta, cs_n_reg,
+        mosi_meta, mosi_reg : signal is "TRUE";
+    attribute SHREG_EXTRACT of sclk_meta, sclk_reg, cs_n_meta, cs_n_reg,
+        mosi_meta, mosi_reg : signal is "NO";
 begin
+    assert WORD_SIZE >= 2 and 2**BIT_CNT_WIDTH = WORD_SIZE
+        report "SPI WORD_SIZE must be a power of two and at least two" severity failure;
 
-    -- -------------------------------------------------------------------------
-    --  INPUT SYNCHRONIZATION REGISTERS
-    -- -------------------------------------------------------------------------
-
-    -- Synchronization registers to eliminate possible metastability.
-    sync_ffs_p : process (CLK)
+    sync_ffs_p : process(CLK)
     begin
-        if (rising_edge(CLK)) then
-            sclk_meta <= SCLK;
-            cs_n_meta <= CS_N;
-            mosi_meta <= MOSI;
-            sclk_reg  <= sclk_meta;
-            cs_n_reg  <= cs_n_meta;
-            mosi_reg  <= mosi_meta;
+        if rising_edge(CLK) then
+            sclk_meta <= SCLK; cs_n_meta <= CS_N; mosi_meta <= MOSI;
+            sclk_reg <= sclk_meta; cs_n_reg <= cs_n_meta; mosi_reg <= mosi_meta;
         end if;
     end process;
-
-    -- -------------------------------------------------------------------------
-    --  SPI CLOCK REGISTER
-    -- -------------------------------------------------------------------------
-
-    -- The SPI clock register is necessary for clock edge detection.
-    spi_clk_reg_p : process (CLK)
+    spi_clk_reg_p : process(CLK)
     begin
-        if (rising_edge(CLK)) then
-            if (RST = '1') then
-                spi_clk_reg <= '0';
-            else
-                spi_clk_reg <= sclk_reg;
-            end if;
+        if rising_edge(CLK) then
+            if RST='1' then spi_clk_reg <= '0';
+            else spi_clk_reg <= sclk_reg; end if;
         end if;
     end process;
-
-    -- -------------------------------------------------------------------------
-    --  SPI CLOCK EDGES FLAGS
-    -- -------------------------------------------------------------------------
-
-    -- Falling edge is detect when sclk_reg=0 and spi_clk_reg=1.
-    spi_clk_fedge_en <= not sclk_reg and spi_clk_reg;
-    -- Rising edge is detect when sclk_reg=1 and spi_clk_reg=0.
     spi_clk_redge_en <= sclk_reg and not spi_clk_reg;
+    spi_clk_fedge_en <= not sclk_reg and spi_clk_reg;
 
-    -- -------------------------------------------------------------------------
-    --  RECEIVED BITS COUNTER
-    -- -------------------------------------------------------------------------
+    -- A mode-0 byte is complete at its final rising edge. Its following
+    -- falling edge may coincide with CS release, or not occur before CS.
+    complete_word <= '1' when spi_clk_redge_en='1' and cs_n_reg='0' and
+        bit_cnt=WORD_SIZE-1 and RST='0' else '0';
+    -- Keep a prefetched word until that word, rather than filler, completes.
+    -- Data arriving during a filler byte remains pending for the next byte.
+    slave_ready <= (not tx_valid or (complete_word and active_valid)) and not RST;
+    DIN_RDY <= slave_ready;
 
-    -- The counter counts received bits from the master. Counter is enabled when
-    -- falling edge of SPI clock is detected and not asserted cs_n_reg.
-    bit_cnt_p : process (CLK)
+    transfer_p : process(CLK)
+        variable next_valid : std_ulogic;
+        variable next_word : std_ulogic_vector(WORD_SIZE-1 downto 0);
     begin
-        if (rising_edge(CLK)) then
-            if (RST = '1' or cs_n_reg = '1') then
-                bit_cnt <= (others => '0');
-            elsif (spi_clk_fedge_en = '1' and cs_n_reg = '0') then
-                if (bit_cnt_max = '1') then
-                    bit_cnt <= (others => '0');
+        if rising_edge(CLK) then
+            DOUT_VLD <= '0';
+            if RST='1' then
+                bit_cnt <= (others => '0'); rx_shift <= (others => '0');
+                tx_shift <= (others => '0'); tx_word <= (others => '0');
+                tx_valid <= '0'; active_valid <= '0'; completed <= '0';
+                DOUT <= (others => '0'); MISO <= '0';
+            else
+                next_valid := tx_valid; next_word := tx_word;
+                if complete_word='1' and active_valid='1' then next_valid := '0'; end if;
+                if slave_ready='1' and DIN_VLD='1' then
+                    next_word := DIN; next_valid := '1';
+                end if;
+                tx_word <= next_word; tx_valid <= next_valid;
+
+                if cs_n_reg='1' then
+                    bit_cnt <= (others => '0'); rx_shift <= (others => '0'); completed <= '0';
+                    -- Partial bytes replay the retained word. Completed bytes
+                    -- already released it; do not replay a word received by the master.
+                    active_valid <= next_valid;
+                    if next_valid='1' then tx_shift <= next_word; MISO <= next_word(WORD_SIZE-1);
+                    else tx_shift <= (others => '0'); MISO <= '0'; end if;
                 else
-                    bit_cnt <= bit_cnt + 1;
+                    if spi_clk_redge_en='1' then
+                        rx_shift <= rx_shift(WORD_SIZE-2 downto 0) & mosi_reg;
+                        if complete_word='1' then
+                            DOUT <= rx_shift(WORD_SIZE-2 downto 0) & mosi_reg;
+                            DOUT_VLD <= '1'; bit_cnt <= (others => '0'); completed <= '1';
+                        else bit_cnt <= bit_cnt+1; end if;
+                    end if;
+                    if spi_clk_fedge_en='1' then
+                        if completed='1' then
+                            completed <= '0'; active_valid <= next_valid;
+                            if next_valid='1' then tx_shift <= next_word; MISO <= next_word(WORD_SIZE-1);
+                            else tx_shift <= (others => '0'); MISO <= '0'; end if;
+                        else
+                            tx_shift <= tx_shift(WORD_SIZE-2 downto 0) & '0';
+                            MISO <= tx_shift(WORD_SIZE-2);
+                        end if;
+                    end if;
                 end if;
             end if;
         end if;
     end process;
-
-    -- The flag of maximal value of the bit counter.
-    bit_cnt_max <= '1' when (bit_cnt = WORD_SIZE-1) else '0';
-
-    -- -------------------------------------------------------------------------
-    --  LAST BIT FLAG REGISTER
-    -- -------------------------------------------------------------------------
-
-    -- The flag of last bit of received byte is only registered the flag of
-    -- maximal value of the bit counter.
-    last_bit_en_p : process (CLK)
-    begin
-        if (rising_edge(CLK)) then
-            if (RST = '1' or cs_n_reg = '1') then
-                last_bit_en <= '0';
-            else
-                last_bit_en <= bit_cnt_max;
-            end if;
-        end if;
-    end process;
-
-    -- -------------------------------------------------------------------------
-    --  RECEIVED DATA VALID FLAG
-    -- -------------------------------------------------------------------------
-
-    -- Received data from master are valid when falling edge of SPI clock is
-    -- detected and the last bit of received byte is detected.
-    rx_data_vld <= spi_clk_fedge_en and last_bit_en and not cs_n_reg and not RST;
-
-    -- -------------------------------------------------------------------------
-    --  SHIFT REGISTER BUSY FLAG REGISTER
-    -- -------------------------------------------------------------------------
-
-    -- Data shift register is busy until it sends all input data to SPI master.
-    shreg_busy_p : process (CLK)
-    begin
-        if (rising_edge(CLK)) then
-            if (RST = '1') then
-                shreg_busy <= '0';
-            else
-                if (load_data_en = '1') then
-                    shreg_busy <= '1';
-                elsif (rx_data_vld = '1') then
-                    shreg_busy <= '0';
-                else
-                    shreg_busy <= shreg_busy;
-                end if;
-            end if;
-        end if;
-    end process;
-
-    -- The SPI slave is ready for accept new input data when cs_n_reg is assert and
-    -- shift register not busy or when received data are valid.
-    slave_ready <= ((cs_n_reg and not shreg_busy) or rx_data_vld) and not RST;
-    
-    -- The new input data is loaded into the shift register when the SPI slave
-    -- is ready and input data are valid.
-    load_data_en <= slave_ready and DIN_VLD;
-
-    -- -------------------------------------------------------------------------
-    --  DATA SHIFT REGISTER
-    -- -------------------------------------------------------------------------
-
-    -- The shift register holds data for sending to master, capture and store
-    -- incoming data from master.
-    data_shreg_p : process (CLK)
-    begin
-        if (rising_edge(CLK)) then
-            if (RST = '1') then
-                tx_word <= (others => '0');
-                data_shreg <= (others => '0');
-            elsif (load_data_en = '1') then
-                tx_word <= DIN;
-                data_shreg <= DIN;
-            elsif (cs_n_reg = '1') then
-                if shreg_busy = '1' then data_shreg <= tx_word;
-                else data_shreg <= (others => '0'); end if;
-            elsif (rx_data_vld = '1') then
-                data_shreg <= (others => '0'); -- no next word: send zero filler
-            elsif (spi_clk_redge_en = '1' and cs_n_reg = '0') then
-                data_shreg <= data_shreg(WORD_SIZE-2 downto 0) & mosi_reg;
-            end if;
-        end if;
-    end process;
-
-    -- -------------------------------------------------------------------------
-    --  MISO REGISTER
-    -- -------------------------------------------------------------------------
-
-    -- The output MISO register ensures that the bits are transmit to the master
-    -- when is not assert cs_n_reg and falling edge of SPI clock is detected.
-    miso_p : process (CLK)
-    begin
-        if (rising_edge(CLK)) then
-            if (RST = '1') then
-                MISO <= '0';
-            elsif (load_data_en = '1') then
-                MISO <= DIN(WORD_SIZE-1);
-            elsif (cs_n_reg = '1') then
-                if shreg_busy = '1' then MISO <= tx_word(WORD_SIZE-1);
-                else MISO <= '0'; end if;
-            elsif (rx_data_vld = '1') then
-                MISO <= '0';
-            elsif (spi_clk_fedge_en = '1' and cs_n_reg = '0') then
-                MISO <= data_shreg(WORD_SIZE-1);
-            end if;
-        end if;
-    end process;
-
-    -- -------------------------------------------------------------------------
-    --  ASSIGNING OUTPUT SIGNALS
-    -- -------------------------------------------------------------------------
-    
-    DIN_RDY  <= slave_ready;
-    DOUT     <= data_shreg;
-    DOUT_VLD <= rx_data_vld;
-
 end architecture;

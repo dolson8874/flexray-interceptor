@@ -12,14 +12,16 @@
     },
     "design_tree": {
       "clk_wiz_0": "",
-      "flexray_interceptor_0": "",
       "flexray_torque_inter_0": "",
       "util_vector_logic_0": "",
       "divider_1": "",
       "SPI_SLAVE_0": "",
       "joystick_decoder_0": "",
       "flexray_can_telemetry_0": "",
-      "control_snapshot_0": ""
+      "control_snapshot_0": "",
+      "flexray_interceptor_0": "",
+      "flexray_log_can_diagnostics_0": "",
+      "can_telemetry_mux_0": ""
     },
     "ports": {
       "CLK12M": {
@@ -272,102 +274,6 @@
           }
         }
       },
-      "flexray_interceptor_0": {
-        "vlnv": "xilinx.com:module_ref:flexray_interceptor:1.0",
-        "ip_revision": "1",
-        "xci_name": "bendbeam_flexray_interceptor_0_0",
-        "xci_path": "ip\\bendbeam_flexray_interceptor_0_0\\bendbeam_flexray_interceptor_0_0.xci",
-        "inst_hier_path": "flexray_interceptor_0",
-        "reference_info": {
-          "ref_type": "hdl",
-          "ref_name": "flexray_interceptor",
-          "boundary_crc": "0x0"
-        },
-        "ports": {
-          "clk": {
-            "type": "clk",
-            "direction": "I",
-            "parameters": {
-              "ASSOCIATED_RESET": {
-                "value": "rst",
-                "value_src": "constant"
-              },
-              "FREQ_HZ": {
-                "value": "80000000",
-                "value_src": "ip_prop"
-              },
-              "PHASE": {
-                "value": "0.0",
-                "value_src": "ip_prop"
-              },
-              "CLK_DOMAIN": {
-                "value": "/clk_wiz_0_clk_out1",
-                "value_src": "ip_prop"
-              }
-            }
-          },
-          "rst": {
-            "type": "rst",
-            "direction": "I",
-            "parameters": {
-              "POLARITY": {
-                "value": "ACTIVE_HIGH",
-                "value_src": "ip_prop"
-              }
-            }
-          },
-          "rx_0": {
-            "direction": "I",
-            "parameters": {
-              "LAYERED_METADATA": {
-                "value": "undef",
-                "value_src": "default_prop"
-              }
-            }
-          },
-          "tx_0": {
-            "direction": "O"
-          },
-          "tx_en_0": {
-            "direction": "O"
-          },
-          "rx_1": {
-            "direction": "I",
-            "parameters": {
-              "LAYERED_METADATA": {
-                "value": "undef",
-                "value_src": "default_prop"
-              }
-            }
-          },
-          "tx_1": {
-            "direction": "O"
-          },
-          "tx_en_1": {
-            "direction": "O"
-          },
-          "rx": {
-            "direction": "O"
-          },
-          "tx": {
-            "direction": "I"
-          },
-          "override": {
-            "direction": "I"
-          },
-          "rx_valid": {
-            "direction": "I"
-          },
-          "send_log": {
-            "direction": "O",
-            "left": "7",
-            "right": "0"
-          },
-          "ready": {
-            "direction": "O"
-          }
-        }
-      },
       "flexray_torque_inter_0": {
         "vlnv": "xilinx.com:module_ref:flexray_torque_intercept:1.0",
         "ip_revision": "1",
@@ -599,7 +505,7 @@
         "inst_hier_path": "joystick_decoder_0",
         "parameters": {
           "ENABLE_CAN_TELEMETRY": {
-            "value": "false"
+            "value": "true"
           }
         },
         "reference_info": {
@@ -861,6 +767,283 @@
             "direction": "O"
           }
         }
+      },
+      "flexray_interceptor_0": {
+        "vlnv": "xilinx.com:module_ref:flexray_interceptor:1.0",
+        "ip_revision": "1",
+        "xci_name": "bendbeam_flexray_interceptor_0_1",
+        "xci_path": "ip\\bendbeam_flexray_interceptor_0_1\\bendbeam_flexray_interceptor_0_1.xci",
+        "inst_hier_path": "flexray_interceptor_0",
+        "reference_info": {
+          "ref_type": "hdl",
+          "ref_name": "flexray_interceptor",
+          "boundary_crc": "0x0"
+        },
+        "ports": {
+          "clk": {
+            "type": "clk",
+            "direction": "I",
+            "parameters": {
+              "ASSOCIATED_RESET": {
+                "value": "rst",
+                "value_src": "constant"
+              },
+              "FREQ_HZ": {
+                "value": "80000000",
+                "value_src": "ip_prop"
+              },
+              "PHASE": {
+                "value": "0.0",
+                "value_src": "ip_prop"
+              },
+              "CLK_DOMAIN": {
+                "value": "/clk_wiz_0_clk_out1",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "rst": {
+            "type": "rst",
+            "direction": "I",
+            "parameters": {
+              "POLARITY": {
+                "value": "ACTIVE_HIGH",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "rx_0": {
+            "direction": "I",
+            "parameters": {
+              "LAYERED_METADATA": {
+                "value": "undef",
+                "value_src": "default_prop"
+              }
+            }
+          },
+          "tx_0": {
+            "direction": "O"
+          },
+          "tx_en_0": {
+            "direction": "O"
+          },
+          "rx_1": {
+            "direction": "I",
+            "parameters": {
+              "LAYERED_METADATA": {
+                "value": "undef",
+                "value_src": "default_prop"
+              }
+            }
+          },
+          "tx_1": {
+            "direction": "O"
+          },
+          "tx_en_1": {
+            "direction": "O"
+          },
+          "rx": {
+            "direction": "O"
+          },
+          "tx": {
+            "direction": "I"
+          },
+          "override": {
+            "direction": "I"
+          },
+          "rx_valid": {
+            "direction": "I"
+          },
+          "send_log": {
+            "direction": "O",
+            "left": "7",
+            "right": "0"
+          },
+          "ready": {
+            "direction": "O"
+          },
+          "log_stats": {
+            "direction": "O",
+            "left": "383",
+            "right": "0"
+          },
+          "spi_byte_done": {
+            "direction": "I"
+          }
+        }
+      },
+      "flexray_log_can_diagnostics_0": {
+        "vlnv": "xilinx.com:module_ref:flexray_log_can_diagnostics:1.0",
+        "ip_revision": "1",
+        "xci_name": "bendbeam_flexray_log_can_diagnostics_0_0",
+        "xci_path": "ip\\bendbeam_flexray_log_can_diagnostics_0_0\\bendbeam_flexray_log_can_diagnostics_0_0.xci",
+        "inst_hier_path": "flexray_log_can_diagnostics_0",
+        "parameters": {
+          "CAN_ID": {
+            "value": "506"
+          },
+          "ENABLED": {
+            "value": "true"
+          }
+        },
+        "reference_info": {
+          "ref_type": "hdl",
+          "ref_name": "flexray_log_can_diagnostics",
+          "boundary_crc": "0x0"
+        },
+        "ports": {
+          "src_clk": {
+            "type": "clk",
+            "direction": "I",
+            "parameters": {
+              "FREQ_HZ": {
+                "value": "80000000",
+                "value_src": "ip_prop"
+              },
+              "PHASE": {
+                "value": "0.0",
+                "value_src": "ip_prop"
+              },
+              "CLK_DOMAIN": {
+                "value": "/clk_wiz_0_clk_out1",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "dst_clk": {
+            "type": "clk",
+            "direction": "I",
+            "parameters": {
+              "FREQ_HZ": {
+                "value": "6382978",
+                "value_src": "ip_prop"
+              },
+              "PHASE": {
+                "value": "0.0",
+                "value_src": "ip_prop"
+              },
+              "CLK_DOMAIN": {
+                "value": "/clk_wiz_0_clk_out1",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "rst": {
+            "type": "rst",
+            "direction": "I",
+            "parameters": {
+              "POLARITY": {
+                "value": "ACTIVE_HIGH",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "stats": {
+            "direction": "I",
+            "left": "383",
+            "right": "0"
+          },
+          "m_valid": {
+            "direction": "O"
+          },
+          "m_ready": {
+            "direction": "I"
+          },
+          "m_data": {
+            "direction": "O",
+            "left": "78",
+            "right": "0"
+          },
+          "dropped_full": {
+            "direction": "O",
+            "left": "31",
+            "right": "0"
+          },
+          "dropped_stale": {
+            "direction": "O",
+            "left": "31",
+            "right": "0"
+          }
+        }
+      },
+      "can_telemetry_mux_0": {
+        "vlnv": "xilinx.com:module_ref:can_telemetry_mux:1.0",
+        "ip_revision": "1",
+        "xci_name": "bendbeam_can_telemetry_mux_0_0",
+        "xci_path": "ip\\bendbeam_can_telemetry_mux_0_0\\bendbeam_can_telemetry_mux_0_0.xci",
+        "inst_hier_path": "can_telemetry_mux_0",
+        "reference_info": {
+          "ref_type": "hdl",
+          "ref_name": "can_telemetry_mux",
+          "boundary_crc": "0x0"
+        },
+        "ports": {
+          "clk": {
+            "type": "clk",
+            "direction": "I",
+            "parameters": {
+              "ASSOCIATED_RESET": {
+                "value": "rst",
+                "value_src": "constant"
+              },
+              "FREQ_HZ": {
+                "value": "6382978",
+                "value_src": "ip_prop"
+              },
+              "PHASE": {
+                "value": "0.0",
+                "value_src": "ip_prop"
+              },
+              "CLK_DOMAIN": {
+                "value": "/clk_wiz_0_clk_out1",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "rst": {
+            "type": "rst",
+            "direction": "I",
+            "parameters": {
+              "POLARITY": {
+                "value": "ACTIVE_HIGH",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "a_valid": {
+            "direction": "I"
+          },
+          "b_valid": {
+            "direction": "I"
+          },
+          "a_ready": {
+            "direction": "O"
+          },
+          "b_ready": {
+            "direction": "O"
+          },
+          "a_data": {
+            "direction": "I",
+            "left": "78",
+            "right": "0"
+          },
+          "b_data": {
+            "direction": "I",
+            "left": "78",
+            "right": "0"
+          },
+          "m_valid": {
+            "direction": "O"
+          },
+          "m_ready": {
+            "direction": "I"
+          },
+          "m_data": {
+            "direction": "O",
+            "left": "78",
+            "right": "0"
+          }
+        }
       }
     },
     "nets": {
@@ -919,10 +1102,40 @@
           "flexray_interceptor_0/rx_valid"
         ]
       },
+      "SPI_SLAVE_0_DOUT_VLD": {
+        "ports": [
+          "SPI_SLAVE_0/DOUT_VLD",
+          "flexray_interceptor_0/spi_byte_done"
+        ]
+      },
       "SPI_SLAVE_0_MISO": {
         "ports": [
           "SPI_SLAVE_0/MISO",
           "BDBUS2"
+        ]
+      },
+      "can_telemetry_mux_0_a_ready": {
+        "ports": [
+          "can_telemetry_mux_0/a_ready",
+          "flexray_can_telemetry_0/m_ready"
+        ]
+      },
+      "can_telemetry_mux_0_b_ready": {
+        "ports": [
+          "can_telemetry_mux_0/b_ready",
+          "flexray_log_can_diagnostics_0/m_ready"
+        ]
+      },
+      "can_telemetry_mux_0_m_data": {
+        "ports": [
+          "can_telemetry_mux_0/m_data",
+          "joystick_decoder_0/telemetry_data"
+        ]
+      },
+      "can_telemetry_mux_0_m_valid": {
+        "ports": [
+          "can_telemetry_mux_0/m_valid",
+          "joystick_decoder_0/telemetry_valid"
         ]
       },
       "clk_wiz_0_clk_out1": {
@@ -930,10 +1143,11 @@
           "clk_wiz_0/clk_out1",
           "SPI_SLAVE_0/CLK",
           "divider_1/clk",
-          "flexray_interceptor_0/clk",
           "flexray_torque_inter_0/clk",
           "flexray_can_telemetry_0/src_clk",
-          "control_snapshot_0/dst_clk"
+          "control_snapshot_0/dst_clk",
+          "flexray_interceptor_0/clk",
+          "flexray_log_can_diagnostics_0/src_clk"
         ]
       },
       "clk_wiz_0_clk_out3": {
@@ -941,7 +1155,9 @@
           "clk_wiz_0/clk_out3",
           "joystick_decoder_0/clk",
           "flexray_can_telemetry_0/dst_clk",
-          "control_snapshot_0/src_clk"
+          "control_snapshot_0/src_clk",
+          "flexray_log_can_diagnostics_0/dst_clk",
+          "can_telemetry_mux_0/clk"
         ]
       },
       "control_snapshot_0_enable_out": {
@@ -971,13 +1187,19 @@
       "flexray_can_telemetry_0_m_data": {
         "ports": [
           "flexray_can_telemetry_0/m_data",
-          "joystick_decoder_0/telemetry_data"
+          "can_telemetry_mux_0/a_data"
         ]
       },
       "flexray_can_telemetry_0_m_valid": {
         "ports": [
           "flexray_can_telemetry_0/m_valid",
-          "joystick_decoder_0/telemetry_valid"
+          "can_telemetry_mux_0/a_valid"
+        ]
+      },
+      "flexray_interceptor_0_log_stats": {
+        "ports": [
+          "flexray_interceptor_0/log_stats",
+          "flexray_log_can_diagnostics_0/stats"
         ]
       },
       "flexray_interceptor_0_ready": {
@@ -1021,6 +1243,18 @@
         "ports": [
           "flexray_interceptor_0/tx_en_1",
           "FR_TXEN_1"
+        ]
+      },
+      "flexray_log_can_diagnostics_0_m_data": {
+        "ports": [
+          "flexray_log_can_diagnostics_0/m_data",
+          "can_telemetry_mux_0/b_data"
+        ]
+      },
+      "flexray_log_can_diagnostics_0_m_valid": {
+        "ports": [
+          "flexray_log_can_diagnostics_0/m_valid",
+          "can_telemetry_mux_0/b_valid"
         ]
       },
       "flexray_torque_inter_0_override": {
@@ -1074,7 +1308,7 @@
       "joystick_decoder_0_telemetry_ready": {
         "ports": [
           "joystick_decoder_0/telemetry_ready",
-          "flexray_can_telemetry_0/m_ready"
+          "can_telemetry_mux_0/m_ready"
         ]
       },
       "joystick_decoder_0_torque": {
@@ -1094,12 +1328,14 @@
           "util_vector_logic_0/Res",
           "SPI_SLAVE_0/RST",
           "divider_1/rst",
-          "flexray_interceptor_0/rst",
           "clk_wiz_0/reset",
           "flexray_torque_inter_0/rst",
           "joystick_decoder_0/rst",
           "flexray_can_telemetry_0/rst",
-          "control_snapshot_0/rst"
+          "control_snapshot_0/rst",
+          "flexray_interceptor_0/rst",
+          "flexray_log_can_diagnostics_0/rst",
+          "can_telemetry_mux_0/rst"
         ]
       }
     }

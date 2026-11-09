@@ -8,11 +8,11 @@
     "gen_directory": "../../../../../../flexray-interceptor-vivado.gen/sources_1/bd/bendbeam/ip/bendbeam_joystick_decoder_0_1",
     "parameters": {
       "component_parameters": {
-        "ENABLE_CAN_TELEMETRY": [ { "value": "false", "value_src": "user", "resolve_type": "user", "format": "bool", "usage": "all" } ],
+        "ENABLE_CAN_TELEMETRY": [ { "value": "true", "value_src": "user", "resolve_type": "user", "format": "bool", "usage": "all" } ],
         "Component_Name": [ { "value": "bendbeam_joystick_decoder_0_1", "resolve_type": "user", "usage": "all" } ]
       },
       "model_parameters": {
-        "ENABLE_CAN_TELEMETRY": [ { "value": "false", "resolve_type": "generated", "format": "bool", "usage": "all" } ]
+        "ENABLE_CAN_TELEMETRY": [ { "value": "true", "resolve_type": "generated", "format": "bool", "usage": "all" } ]
       },
       "project_parameters": {
         "ARCHITECTURE": [ { "value": "spartan7" } ],

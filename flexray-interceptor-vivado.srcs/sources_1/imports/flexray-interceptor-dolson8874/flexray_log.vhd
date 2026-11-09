@@ -30,7 +30,7 @@ entity flexray_log is
     i_rst      : in std_ulogic;
     i_ready    : in std_ulogic; -- update msg
     i_busy     : in std_ulogic; -- fastserial_tx busy
-    i_bus      : in std_ulogic; -- from_psmc = '0' , from dadc = '1'
+    i_bus      : in std_ulogic; -- BCM-side = '0', DADC = '1'
     i_msg      : in work.flexray.message; -- flexray message
     o_tx_byte  : out std_ulogic_vector (7 downto 0); -- fastserial_tx data
     o_tx_ready : out std_ulogic; -- fastserial tx ready 

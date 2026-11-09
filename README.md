@@ -21,7 +21,7 @@ The design places two FlexRay PHYs between vehicle bus segments to provide **tra
 - **MITM pass-through**: Transparent bridge between Port-A (vehicle) and Port-B (DADC)
 - **Frame-level processing**: BSS/TSS/FSS sync → header/payload parsing → CRC check
 - **Selective modification**: On-the-fly field or payload rewrite rules
-- **Reliable logging**: Timestamp + raw/PDU dual logging, backpressure support
+- **Buffered logging**: CRC-validated bidirectional frames over SPI, per-direction queues and backpressure support
 - **Host I/O**: FT4232HAQ  Channel A (JTAG) , Channel B SPI  for log streaming
 
 
@@ -147,7 +147,10 @@ flowchart LR
   Bridge -->|original Port-B input| Modify[flexray_torque_intercept]
   Modify -->|override and serial bit| Bridge
   Bridge -->|Port-A output stream| LogRX[flexray_rx]
-  LogRX --> Log[flexray_log]
+  Bridge -->|Port-B output stream| BCMRX[BCM-side flexray_rx]
+  LogRX --> Dispatch[Per-direction frame queues / round robin]
+  BCMRX --> Dispatch
+  Dispatch --> Log[flexray_log]
   Log --> LogFIFO[Logging FIFO]
   LogFIFO --> SPI[SPI_SLAVE / host]
   CANRX[CAN transceiver RXD] --> Decoder[can_rx / joystick_decoder]
@@ -156,14 +159,21 @@ flowchart LR
   Bridge -->|original Port-B input| Observe[Telemetry flexray_rx]
   Observe --> Select[Frame / cycle / byte filter]
   Select --> Queue[XPM async FIFO and expiry]
-  Queue --> CANTX[can_tx]
+  Dispatch --> Stats[Logging counters / FIFO occupancy]
+  Stats --> Diag[1 Hz snapshot / eight packed CAN pages / async queue]
+  Diag --> Mux[CAN request arbitration]
+  Queue --> Mux
+  Mux --> CANTX[can_tx]
   CANTX --> CANTXD[CAN transceiver TXD]
   Decoder -->|ACK for external valid frames| CANTXD
 ```
 
-CAN telemetry is disabled by default in both `flexray_can_telemetry_0.ENABLED`
-and `joystick_decoder_0.ENABLE_CAN_TELEMETRY`. No telemetry identifier or data
-mapping has been selected for the vehicle yet. Test identifiers are test vectors.
+FlexRay data telemetry remains disabled in `flexray_can_telemetry_0.ENABLED`.
+The saved block design enables logging diagnostics on standard CAN ID `0x1FA`
+and the shared transmitter in `joystick_decoder_0.ENABLE_CAN_TELEMETRY`.
+The HDL enable generic defaults remain false. No vehicle FlexRay-to-CAN data
+mapping has been selected; diagnostics do not enable that collector.
+Test telemetry identifiers are test vectors.
 
 The observation path reads the original Port-B input through
 `flexray_interceptor_0/rx`. `flexray_rx` checks header/frame CRCs, then the
@@ -210,8 +220,9 @@ Run the local simulations with Vivado 2024.2 installed:
 For local full-design synthesis, placement, routing, CDC, DRC, utilization, and
 timing reports, use the following commands. They create separate projects under
 the ignored `tests/design_*.sim` directories, and do not generate a bitstream
-or program a board. The second command enables telemetry only in its temporary
-verification project. Reports belong to that configuration, not automatically
+or program a board. Both configurations enable diagnostic CAN; the second
+command additionally enables frame telemetry in its temporary verification
+project. Reports belong to that configuration, not automatically
 to an existing bitstream.
 
 ```powershell
@@ -283,6 +294,154 @@ the last buffered byte remains available after the FIFO becomes empty. Reset
 flushes the prefetch and drives both forwarding outputs and enables to idle high.
 The frontend suite generates the actual FIFO simulation model from the saved XCI
 and checks reset, stalled consumption, and exact log frames including final CRC.
+
+## Bidirectional logging and diagnostic CAN (2026-11-09)
+
+Both forwarding outputs are decoded for logging: `s_tx_0` is DADC to the BCM
+side (after interception), and `s_tx_1` is the BCM side to DADC. The BCM-side
+segment may contain other transmitting ECUs. Each direction has 32 complete
+frame slots plus a shared active logger request. The packed records use
+distributed RAM (LUTRAM); the depth generic permits 1..64 slots. Round-robin arbitration keeps
+the selected frame and its direction stable until accepted; a full frame queue
+drops the new frame without stalling the FlexRay bridge. Output order preserves
+each direction's order, not a globally timestamped receive order.
+
+The existing byte format is retained: `CA A0` for DADC (wire bus 2, sunnypilot
+source 6), `CA 80` for BCM-side traffic (wire bus 0, sunnypilot source 4),
+followed by the existing header, duplicated flags/cycle, payload, and CRC.
+A record is payload length + 12 bytes, up to 266 bytes. The host parser must
+accept both markers and retain partial records across Bulk reads. The markers
+can occur inside payload and the direction byte is not covered by FlexRay CRC.
+No timestamp, sequence number, or diagnostics bytes were added to SPI.
+The user's reported working SPI setting is 7.5 MHz; 10 MHz is unverified.
+
+The saved block design enables standard 11-bit CAN ID `0x1FA`, DLC 8, for logging
+diagnostics. The normal FlexRay data collector remains disabled. At 80 MHz,
+one coherent statistics snapshot is captured every 80,000,000 clocks (1 second).
+Eight packed pages from that snapshot pass through the existing asynchronous CAN
+queue, with a one-second message expiry, then a fair request arbiter and the
+shared `can_tx`. Backpressure/full queues never stall the FlexRay bridge.
+The CAN clock/bitrate and existing transmitter protocol limitations described
+above are unchanged. No new bitstream has been programmed.
+
+| CAN data bytes | Encoding |
+| --- | --- |
+| 0 | version 2 in upper nibble, page 0..7 in lower nibble (`20`..`27` hex) |
+| 1 | snapshot sequence, wraps 255 to 0; first snapshot after reset is 0 |
+| 2..7 | six contiguous snapshot bytes; no reserved bytes |
+
+Reassemble `snapshot[page*6:page*6+6] = data[2:8]` for all eight pages, then
+decode the 48 bytes as twelve little-endian uint32 values. A value can cross a
+page boundary. Version 1's one-value-per-page draft is not this wire format.
+
+| Item index (byte offset = index * 4) | Value |
+| --- | --- |
+| 0 | DADC CRC-valid frame count, including queue-full drops |
+| 1 | BCM-side CRC-valid frame count, including queue-full drops |
+| 2 | DADC frame-queue drop count |
+| 3 | BCM-side frame-queue drop count |
+| 4 | DADC queue high water in low 16 bits, BCM queue high water in high 16 bits |
+| 5 | Current byte FIFO occupancy, excludes prefetch byte |
+| 6 | Maximum byte FIFO occupancy |
+| 7 | Byte FIFO full-state entries (not full clock cycles) |
+| 8 | DADC log byte demand, including queue drops and 12-byte record overhead |
+| 9 | BCM-side log byte demand, including queue drops and record overhead |
+| 10 | Valid log bytes accepted by SPI prefetch, excluding idle zero filler |
+| 11 | Completed SPI bytes, including filler, counted from `SPI_SLAVE.DOUT_VLD` |
+
+Event counts saturate at `FFFFFFFF` hex. Byte totals (items 8..11) wrap modulo
+2^32 so continuous rate measurements do not freeze after about 76 minutes at
+full 7.5 MHz service. All counters/high-water values reset to zero;
+queue peaks are 0..32 with the default depth and the byte FIFO capacity is 131072. These signals also
+remain marked for debug. CAN diagnostic queue drops/expiry and CAN transmission
+outcomes are not included in these eight pages. A missing page means an
+incomplete snapshot, not a zero counter. Host assembly needs a receive timeout,
+page mask, and sequence-wrap/reset handling. The actual receiving Panda bus is
+not specified yet and must be configurable on the host.
+
+For the intended 7.5 MHz capacity measurement, divide the modulo byte-counter
+differences by the snapshot time interval. Items 8+9 measure input demand,
+item 10 measures useful drain into SPI prefetch, and item 11 measures actual
+clock service including filler under the current host Bulk-read pattern.
+Continuous 7.5 MHz clocks have a nominal ceiling of 937500 byte/s; USB/MPSSE
+gaps can lower observed service. Sustained input above service, growing FIFO
+occupancy, or increasing drops identify insufficient service for that workload.
+Prefetch drain can lead completed transmission by buffered bytes and does not
+confirm USB/host delivery. These rates are log bytes, not FlexRay bus occupancy.
+
+Host implementation instructions, including the CAN byte map and tests, are in
+[`docs/sunnypilot-flexray-handoff.txt`](docs/sunnypilot-flexray-handoff.txt).
+Run `./tests/run_log_diagnostics_tests.ps1` for snapshot/CDC/request arbitration
+and end-to-end CAN wire/CRC/stuffing/external-ACK verification. The frontend
+suite checks both directions, zero/maximum payload length, a modeled 50 ns PHY
+echo path (not a measured board delay),
+mixed same-ID frames, statistics, CRC rejection, stalled reads, and warm reset.
+
+Local verification on 2026-11-09, Vivado 2024.2, `xa7s50csga324-1Q`, FIFO depth
+32 per direction: all 12 simulation scripts (15 test tops) passed via
+`tests/run_all.ps1` (`ALL_LOCAL_SIMULATIONS_PASS`). Both complete implementations
+enable diagnostic CAN `0x1FA`; only the second enables frame telemetry in its
+temporary verification project.
+
+| Frame telemetry | Routed WNS | Routed WHS | Setup/hold failing endpoints | LUT / register use |
+| --- | ---: | ---: | ---: | ---: |
+| Disabled (saved source configuration) | +0.210 ns | +0.015 ns | 0 / 0 | 38.00% / 24.35% |
+| Enabled (verification only) | +0.285 ns | +0.010 ns | 0 / 0 | 44.92% / 25.75% |
+
+Reports/checkpoints: `tests/design_0_packed.sim/`, `tests/design_1_packed.sim/`.
+Both infer RAM storage for the two frame FIFOs, have zero methodology findings
+and zero DRC errors. DRC warnings for BRAM asynchronous controls/LUT pairing and
+unused loads remain; CDC-15 warnings remain for the scoped mailbox/async FIFO
+structures. Bus-skew checks pass and the control synchronizer constraints still
+match both toggle stages. Internal timing closure does not validate external
+board/transceiver I/O timing. No bitstream, board programming, or vehicle test
+was performed; actual 7.5 MHz service/headroom still requires measurement.
+
+## SPI completion, synchronization, and FT4232H USB follow-up
+
+SPI RX and TX now have separate shift state. The final rising edge commits an
+RX byte; the following falling edge prepares TX. Raising CS at that falling
+edge no longer replays a completed word. An aborted partial byte still retries
+the retained TX word. A word arriving during zero filler waits for a byte
+boundary. SCLK/CS/MOSI input pairs have `ASYNC_REG`/`SHREG_EXTRACT` attributes;
+`spi_cdc.xdc` excludes only pin-to-first-stage paths. The second stages stay
+timed. MISO uses an I/O output register. The logging-only BD optimizes unused
+MOSI receive-data logic away; checks require SCLK/CS pairs and any retained MOSI
+pair rather than retaining unused hardware.
+
+`tests/run_all.ps1` passes all 13 scripts / 16 test tops. The added phase sweep
+checks 256 continuous bytes at 25 phases and short CS holds at 125 conditions;
+7.5 MHz and CS recovery pass. Ideal 10 MHz/12.5 MHz characterization also passes,
+but this excludes board delays and is not hardware qualification.
+
+| Frame telemetry | Routed WNS | Routed WHS | Setup/hold failures |
+| --- | ---: | ---: | ---: |
+| Disabled; scoped-checkpoint implementation | +0.536 ns | +0.007 ns | 0 / 0 |
+| Enabled; separate verification project | +0.230 ns | +0.011 ns | 0 / 0 |
+
+Current SPI reports are in `tests/design_0_spi2_scoped.sim/` and
+`tests/design_1_spi2.sim/`; both pass methodology/DRC error checks, with existing
+warning classes retained. `scripts/check_spi_checkpoint.tcl -tclargs
+0_spi2_scoped` checks the saved first configuration without rebuilding it.
+Both retain the two used synchronizer pairs and MISO at `OLOGIC_X0Y34`.
+The MISO report is an unconstrained external path, not setup/hold signoff.
+Board/FTDI timing values were unavailable, so external timing remains explicitly
+`NOT_VALIDATED`. No 10 MHz setting, bitstream programming, or vehicle test is included.
+
+The host SPI/USB patch is `host-patches/sunnypilot-spi-usb.patch`, based on
+sunnypilot commit `6b0167ab12af`. It fixes clock divide state/rounding, queues at
+most two read chunks, returns partial USB payload after removing FTDI status,
+resumes soft timeouts, preserves bytes before fatal errors, and drains pending
+responses on stop with a fixed deadline. It reports USB payload throughput and
+I/O gaps. It does not change the SPI wire format or diagnostic CAN version 2.
+Clean patch application and the actual patched C driver/reader pass native GCC
+`-Wall -Wextra -Werror` mock tests via `scripts/test_sunnypilot_spi_patch.ps1`.
+The full Linux application build and physical USB performance still need host
+validation. Nothing was pushed to GitHub.
+
+`docs/sunnypilot-flexray-handoff.txt` is the single-file instruction package;
+its appendix embeds the tested host patch. `docs/spi-review.txt` is a historical
+review record, not the host implementation instruction.
 
 ## Review fixes and disabled LCA tests
 

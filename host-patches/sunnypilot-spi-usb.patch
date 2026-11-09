@@ -1,0 +1,730 @@
+diff --git a/openpilot/system/flexray_logd/Makefile b/openpilot/system/flexray_logd/Makefile
+index 843890a..de5cad3 100644
+--- a/openpilot/system/flexray_logd/Makefile
++++ b/openpilot/system/flexray_logd/Makefile
+@@ -2,23 +2,26 @@ CC = gcc
+ CPPFLAGS += -I. -Ilibftdi $(shell pkg-config --cflags libusb-1.0)
+ CFLAGS += -g -std=gnu11 -Wall -Wextra -pthread -MMD -MP
+ LDLIBS += $(shell pkg-config --libs libusb-1.0) -pthread
+-COMMON = flexray_capture.o flexray_output.o flexray_reader.o flexray_decoder.o libftdi/ftdispi.o libftdi/ftdi.o
++COMMON = flexray_capture.o flexray_output.o flexray_reader.o flexray_decoder.o libftdi/ftdispi.o libftdi/ftdispi_usb.o libftdi/ftdi.o
+ 
+ .PHONY: all test
++tests/test_spi_pipeline: tests/test_spi_pipeline.c flexray_reader.c libftdi/ftdispi.c libftdi/ftdispi_usb.c
++	$(CC) -Itests/mocks -I. -Ilibftdi $(CFLAGS) -o $@ $(filter %.c,$^) -pthread
+ all: flexray_logd flexray_dump
+ flexray_logd: flexray_logd.o $(COMMON)
+ flexray_dump: flexray_dump.o $(COMMON)
+ tests/test_decoder: tests/test_decoder.c flexray_decoder.c
+ 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $(filter %.c %.o,$^)
+-tests/test_spi_timeout: tests/test_spi_timeout.c libftdi/ftdispi.o libftdi/ftdi.o
++tests/test_spi_timeout: tests/test_spi_timeout.c libftdi/ftdispi.o libftdi/ftdispi_usb.o libftdi/ftdi.o
+ 	$(CC) $(CPPFLAGS) $(CFLAGS) -Wl,--wrap=ftdi_read_data -Wl,--wrap=ftdi_write_data -o $@ $(filter %.c %.o,$^) $(LDLIBS)
+ tests/test_output: tests/test_output.c flexray_output.c
+ 	$(CC) $(CPPFLAGS) $(CFLAGS) -Wl,--wrap=send -Wl,--wrap=write -o $@ $(filter %.c %.o,$^) -pthread
+-tests/test_reader: tests/test_reader.c flexray_reader.c libftdi/ftdispi.o libftdi/ftdi.o
+-	$(CC) $(CPPFLAGS) $(CFLAGS) -Wl,--wrap=ftdi_usb_open -Wl,--wrap=ftdi_set_bitmode -Wl,--wrap=ftdi_set_latency_timer -Wl,--wrap=ftdi_read_data -Wl,--wrap=ftdispi_read_stream -o $@ $(filter %.c %.o,$^) $(LDLIBS)
+-test: all tests/test_decoder tests/test_spi_timeout tests/test_output tests/test_reader
++tests/test_reader: tests/test_reader.c flexray_reader.c libftdi/ftdispi.o libftdi/ftdispi_usb.o libftdi/ftdi.o
++	$(CC) $(CPPFLAGS) $(CFLAGS) -Wl,--wrap=ftdi_usb_open -Wl,--wrap=ftdi_set_bitmode -Wl,--wrap=ftdi_set_latency_timer -Wl,--wrap=ftdi_read_data -Wl,--wrap=ftdispi_stream_read_some -o $@ $(filter %.c %.o,$^) $(LDLIBS)
++test: all tests/test_decoder tests/test_spi_timeout tests/test_spi_pipeline tests/test_output tests/test_reader
+ 	./tests/test_decoder
+ 	./tests/test_spi_timeout
++	./tests/test_spi_pipeline
+ 	./tests/test_output
+ 	./tests/test_reader
+ 	python3 tests/test_capture.py
+diff --git a/openpilot/system/flexray_logd/SConscript b/openpilot/system/flexray_logd/SConscript
+index eed38a9..8d98697 100644
+--- a/openpilot/system/flexray_logd/SConscript
++++ b/openpilot/system/flexray_logd/SConscript
+@@ -7,7 +7,7 @@ if arch != 'Darwin':
+   local_env.Append(CPPPATH=[Dir('.').abspath, Dir('libftdi').abspath, libusb.INCLUDE_DIR],
+                    LIBPATH=[libusb.LIB_DIR])
+   ftdi = local_env.StaticLibrary('libftdi/ftdi', ['libftdi/ftdi.c'])
+-  spi = local_env.StaticLibrary('libftdi/ftdispi', ['libftdi/ftdispi.c'])
++  spi = local_env.StaticLibrary('libftdi/ftdispi', ['libftdi/ftdispi.c', 'libftdi/ftdispi_usb.c'])
+   for target in ['flexray_logd', 'flexray_dump']:
+     local_env.Program(target, [target + '.c', 'flexray_capture.c', 'flexray_output.c', 'flexray_reader.c', 'flexray_decoder.c', spi, ftdi],
+                       LIBS=['usb-1.0', 'pthread'])
+diff --git a/openpilot/system/flexray_logd/flexray_capture.c b/openpilot/system/flexray_logd/flexray_capture.c
+index 92b97b6..e0839c6 100644
+--- a/openpilot/system/flexray_logd/flexray_capture.c
++++ b/openpilot/system/flexray_logd/flexray_capture.c
+@@ -83,7 +83,8 @@ int flexray_capture_main(int argc, char **argv, bool serve_socket) {
+   struct flexray_decode_stats stats = {0};
+   uint64_t raw_bytes = 0;
+   result = EXIT_SUCCESS;
+-  while (!interrupted) {
++  while (!interrupted || flexray_reader_pending(&reader)) {
++    if (interrupted) flexray_reader_finish(&reader);
+     if (file_output.started && atomic_load(&file_output.error)) {
+       if (flexray_output_close(&file_output)) perror("flexray: recording disabled; capture continues");
+       recording_failed = true;
+@@ -94,13 +95,13 @@ int flexray_capture_main(int argc, char **argv, bool serve_socket) {
+     }
+     ssize_t n = flexray_reader_read(&reader, raw, sizeof(raw));
+     if (n < 0) {
+-      if (interrupted) break;
++      if (interrupted && reader.type != FT_SPI) break;
+       perror("flexray: input read");
+       result = EXIT_FAILURE;
+       break;
+     }
+     if (!n) {
+-      if (reader.type == FT_FILE_TEST) break;
++      if (reader.type == FT_FILE_TEST || (interrupted && !flexray_reader_pending(&reader))) break;
+       usleep(1000);
+       continue;
+     }
+diff --git a/openpilot/system/flexray_logd/flexray_reader.c b/openpilot/system/flexray_logd/flexray_reader.c
+index 6767f18..ebffa06 100644
+--- a/openpilot/system/flexray_logd/flexray_reader.c
++++ b/openpilot/system/flexray_logd/flexray_reader.c
+@@ -2,6 +2,27 @@
+ #include <string.h>
+ #include "flexray_reader.h"
+ 
++void flexray_reader_finish(struct flexray_reader *r) {
++  if (r->type == FT_SPI) ftdispi_stream_finish(&r->spi);
++}
++bool flexray_reader_pending(const struct flexray_reader *r) {
++  return r->type == FT_SPI && r->spi.stream_pending != 0;
++}
++static void report_spi(struct flexray_reader *r) {
++  struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
++  if (!r->report_at.tv_sec && !r->report_at.tv_nsec) {
++    r->report_at = now; r->report_bytes = r->spi.stream_bytes; return;
++  }
++  double dt = now.tv_sec-r->report_at.tv_sec+(now.tv_nsec-r->report_at.tv_nsec)/1e9;
++  if (dt >= 1) {
++    fprintf(stderr, "SPI: clock=%uHz usb_payload=%.0fB/s pending=%u commands=%llu empty=%llu timeout=%llu max_gap=%.3fms io_total=%.3fms\n",
++      r->spi.actual_clock_hz, (r->spi.stream_bytes-r->report_bytes)/dt, r->spi.stream_pending,
++      (unsigned long long)r->spi.stream_commands, (unsigned long long)r->spi.stream_idle_reads,
++      (unsigned long long)r->spi.stream_timeouts, r->spi.stream_gap_ns/1e6, r->spi.stream_read_ns/1e6);
++    r->report_at = now; r->report_bytes = r->spi.stream_bytes;
++  }
++}
++
+ void flexray_reader_close(struct flexray_reader *r) {
+   if (r->file) fclose(r->file);
+   if (r->spi_owned) {
+@@ -73,7 +94,10 @@ ssize_t flexray_reader_read(struct flexray_reader *r, void *data, size_t capacit
+   }
+   if (r->type == FT_SPI) {
+     if (capacity > 65535) capacity = 65535;
+-    if (ftdispi_read_stream(&r->spi, data, capacity, 0) == 0) return capacity;
++    int n = ftdispi_stream_read_some(&r->spi, data, capacity, 0);
++    report_spi(r);
++    if (n >= 0) return n;
++    fprintf(stderr, "SPI: read failed code=%d pending=%u bytes\n", n, r->spi.stream_pending);
+   } else {
+     int n = ftdi_read_data(&r->usb, data, capacity);
+     if (n >= 0) return n;
+diff --git a/openpilot/system/flexray_logd/flexray_reader.h b/openpilot/system/flexray_logd/flexray_reader.h
+index 7f91ca2..7e9b2fe 100644
+--- a/openpilot/system/flexray_logd/flexray_reader.h
++++ b/openpilot/system/flexray_logd/flexray_reader.h
+@@ -13,9 +13,13 @@ struct flexray_reader {
+   struct ftdi_context usb;
+   struct ftdispi_context spi;
+   bool initialized, spi_owned, loop;
++  struct timespec report_at;
++  uint64_t report_bytes;
+ };
+ int flexray_reader_open(struct flexray_reader *reader, const char *file, bool loop);
+-// File EOF returns zero; device errors return -1, including incomplete SPI transfers.
++// Zero means file EOF or transient empty USB data; partial SPI bytes are returned.
+ ssize_t flexray_reader_read(struct flexray_reader *reader, void *data, size_t capacity);
+ void flexray_reader_close(struct flexray_reader *reader);
++void flexray_reader_finish(struct flexray_reader *reader);
++bool flexray_reader_pending(const struct flexray_reader *reader);
+ #endif
+diff --git a/openpilot/system/flexray_logd/libftdi/ftdispi.c b/openpilot/system/flexray_logd/libftdi/ftdispi.c
+index 71b944e..0d5e830 100644
+--- a/openpilot/system/flexray_logd/libftdi/ftdispi.c
++++ b/openpilot/system/flexray_logd/libftdi/ftdispi.c
+@@ -89,6 +89,12 @@
+ 			return RVAL;			\
+ 		} } while (0)
+ 
++static int spi_write_exact(struct ftdispi_context *fsc, const unsigned char *data, int size) {
++  int written = ftdi_write_data(&fsc->fc, data, size);
++  if (written != size) { fsc->stream_error = FTDISPI_ERROR_LIB; return -1; }
++  return written;
++}
++
+ static int ftdispi_realloc(struct ftdispi_context *fsc, size_t size);
+ static int ftdispi_wait(struct ftdispi_context *fsc, uint8_t mask,
+ 			uint8_t value, int maxtry);
+@@ -98,6 +104,7 @@ __dll int ftdispi_open(struct ftdispi_context *fsc,
+ {
+ 	ASSERT_CHECK(!fc || !fsc, "CTX NOT INITIALIZED", FTDISPI_ERROR_CTX);
+ 	memset(fsc, 0, sizeof(*fsc));
++  fsc->bitini = BIT_P_CS;
+ 	memcpy(&fsc->fc, fc, sizeof(*fc));
+ 	if (0 != (fsc->mem = malloc(DEFAULT_MEM_SIZE))) {
+ 		fsc->memsize = DEFAULT_MEM_SIZE;
+@@ -124,54 +131,43 @@ __dll int ftdispi_open(struct ftdispi_context *fsc,
+ 	FTDI_CHECK(ftdi_set_bitmode(&fsc->fc, 0, BBMODE_SPI), "SET SPI MODE",
+ 		   fsc->fc);
+ 
++  FTDI_CHECK(ftdi_tcioflush(&fsc->fc), "PURGE", fsc->fc);
+   uint8_t init_cmds[] = {
+     0x8A, // Disable divide-by-5 → 60 MHz ref
+     0x97, // Disable adaptive clocking
+     0x8D, // Disable 3-phase clocking (I2C용 기능, SPI에서는 OFF)
+     0x85  // Disable loopback
+   };
+-  FTDI_CHECK(ftdi_write_data(&fsc->fc, init_cmds, sizeof(init_cmds)),
+-           "MPSSE INIT", fsc->fc);
++  int high_speed = fsc->fc.type == TYPE_2232H || fsc->fc.type == TYPE_4232H || fsc->fc.type == TYPE_232H;
++  unsigned char *initial = high_speed ? init_cmds : init_cmds + 3;
++  int initial_size = high_speed ? sizeof(init_cmds) : 1;
++  if (spi_write_exact(fsc, initial, initial_size) != initial_size) return FTDISPI_ERROR_LIB;
+ 
+ 	fsc->wr_cmd = MPSSE_DO_WRITE;
+ 	fsc->rd_cmd = MPSSE_DO_READ | MPSSE_READ_NEG;
+ 	fsc->bitini = BIT_P_CS;
+ 
+-	//FTDI_CHECK(ftdi_usb_purge_buffers(&fsc->fc), "PURGE", fsc->fc);
+ 
+ 	return FTDISPI_ERROR_NONE;
+ }
+ 
+ __dll int ftdispi_setclock(struct ftdispi_context *fsc, uint32_t speed)
+ {
+-	uint8_t buf[3] = { 0, 0, 0 };
+-	uint32_t div;
+-	uint32_t base;
+-
+-	ASSERT_CHECK(!fsc, "CTX NOT INITIALIZED", FTDISPI_ERROR_CTX);
+-	if (speed > CLOCK_MAX_SPEEDX5 || speed < CLOCK_MIN_SPEED) {
+-		return FTDISPI_ERROR_CLK;
+-	}
+-	if (speed > CLOCK_MAX_SPEED) {
+-		/* TODO check if the device can support this */
+-		base = CLOCK_MAX_SPEEDX5;
+-	} else {
+-		base = CLOCK_MAX_SPEED;
+-	}
+-	div = (base / speed) - 1;
+-	if (div > 0xFFFF) {
+-		return FTDISPI_ERROR_CLK;
+-	}
+-	if (base == CLOCK_MAX_SPEEDX5) {
+-		buf[0] = TCK_X5;
+-		FTDI_CHECK(ftdi_write_data(&fsc->fc, buf, 1), "SET CLK X5",
+-			   fsc->fc);
+-	}
+-	buf[0] = TCK_DIVISOR;
+-	buf[1] = (div >> 0) & 0xFF;
+-	buf[2] = (div >> 8) & 0xFF;
+-	FTDI_CHECK(ftdi_write_data(&fsc->fc, buf, 3), "SET CLK DIV", fsc->fc);
+-	return FTDISPI_ERROR_NONE;
++  ASSERT_CHECK(!fsc, "CTX NOT INITIALIZED", FTDISPI_ERROR_CTX);
++  if (fsc->stream_chunk || fsc->stream_error) return FTDISPI_ERROR_CMD;
++  int high_speed = fsc->fc.type == TYPE_2232H || fsc->fc.type == TYPE_4232H || fsc->fc.type == TYPE_232H;
++  if (speed < CLOCK_MIN_SPEED || speed > CLOCK_MAX_SPEEDX5 || (!high_speed && speed > CLOCK_MAX_SPEED))
++    return FTDISPI_ERROR_CLK;
++  uint32_t base = high_speed && speed > CLOCK_MAX_SPEED ? CLOCK_MAX_SPEEDX5 : CLOCK_MAX_SPEED;
++  uint32_t divisor = (base + speed - 1) / speed - 1;
++  if (divisor > 0xffff) return FTDISPI_ERROR_CLK;
++  uint8_t command[4]; int size = 0;
++  if (high_speed) command[size++] = base == CLOCK_MAX_SPEEDX5 ? 0x8a : 0x8b;
++  command[size++] = TCK_DIVISOR;
++  command[size++] = divisor & 0xff; command[size++] = divisor >> 8;
++  if (spi_write_exact(fsc, command, size) != size) { fsc->actual_clock_hz = 0; fsc->stream_error = FTDISPI_ERROR_LIB; return FTDISPI_ERROR_LIB; }
++  fsc->actual_clock_hz = base / (divisor + 1);
++  return FTDISPI_ERROR_NONE;
+ }
+ 
+ __dll int ftdispi_setloopback(struct ftdispi_context *fsc, int active)
+@@ -179,13 +175,14 @@ __dll int ftdispi_setloopback(struct ftdispi_context *fsc, int active)
+ 	uint8_t buf[1] = { 0 };
+ 
+ 	ASSERT_CHECK(!fsc, "CTX NOT INITIALIZED", FTDISPI_ERROR_CTX);
++  if (fsc->stream_chunk || fsc->stream_error) return FTDISPI_ERROR_CMD;
+ 	if (active) {
+ 		buf[0] = LOOPBACK_START;
+-		FTDI_CHECK(ftdi_write_data(&fsc->fc, buf, 1), "SET LOOP",
++		FTDI_CHECK(spi_write_exact(fsc, buf, 1), "SET LOOP",
+ 			   fsc->fc);
+ 	} else {
+ 		buf[0] = LOOPBACK_END;
+-		FTDI_CHECK(ftdi_write_data(&fsc->fc, buf, 1), "SET NO LOOP",
++		FTDI_CHECK(spi_write_exact(fsc, buf, 1), "SET NO LOOP",
+ 			   fsc->fc);
+ 	}
+ 	return FTDISPI_ERROR_NONE;
+@@ -199,6 +196,7 @@ __dll int ftdispi_setmode(struct ftdispi_context *fsc,
+ 	uint8_t buf[3] = { 0, 0, 0 };
+ 
+ 	ASSERT_CHECK(!fsc, "CTX NOT INITIALIZED", FTDISPI_ERROR_CTX);
++  if (fsc->stream_chunk || fsc->stream_error) return FTDISPI_ERROR_CMD;
+ 	fsc->wr_cmd = MPSSE_DO_WRITE | (bitmode ? MPSSE_BITMODE : 0);
+ 	fsc->rd_cmd = MPSSE_DO_READ | (bitmode ? MPSSE_BITMODE : 0);
+ 	fsc->bitini = (csh ? BIT_P_CS : 0) | (BIT_P_GX & gpoini);
+@@ -234,10 +232,10 @@ __dll int ftdispi_setmode(struct ftdispi_context *fsc,
+ 	buf[0] = SET_BITS_LOW;
+ 	buf[1] = fsc->bitini;
+ 	buf[2] = BIT_DIR;
+-	FTDI_CHECK(ftdi_write_data(&fsc->fc, buf, 3), "WR INI", fsc->fc);
++	FTDI_CHECK(spi_write_exact(fsc, buf, 3), "WR INI", fsc->fc);
+ 	if (ftdispi_wait(fsc, BIT_P_CS | BIT_P_GX, fsc->bitini, RETRY_MAX)) {
+ 		/* I still don't know why sometime the command must be resent */
+-		FTDI_CHECK(ftdi_write_data(&fsc->fc, buf, 3), "WR INI",
++		FTDI_CHECK(spi_write_exact(fsc, buf, 3), "WR INI",
+ 			   fsc->fc);
+ 	}
+ 	return ftdispi_wait(fsc, BIT_P_CS | BIT_P_GX, fsc->bitini, RETRY_MAX);
+@@ -249,6 +247,7 @@ __dll int ftdispi_read_stream(struct ftdispi_context *fsc,
+ {
+   int i = 0, n = 0, r;
+   ASSERT_CHECK(!fsc || !fsc->mem || !rbuf || !rcount, "INVALID STREAM", FTDISPI_ERROR_CTX);
++  if (fsc->stream_chunk || fsc->stream_error) return FTDISPI_ERROR_CMD;
+   struct timespec start, now;
+   clock_gettime(CLOCK_MONOTONIC, &start);
+   // CS Low
+@@ -260,7 +259,7 @@ __dll int ftdispi_read_stream(struct ftdispi_context *fsc,
+   fsc->mem[i++] = (rcount - 1) & 0xFF;
+   fsc->mem[i++] = ((rcount - 1) >> 8) & 0xFF;
+ 
+-  r = ftdi_write_data(&fsc->fc, fsc->mem, i);
++  r = spi_write_exact(fsc, fsc->mem, i);
+   if (r != i) return FTDISPI_ERROR_LIB;
+ 
+   for (n = 0; n < rcount; n += r) {
+@@ -275,11 +274,88 @@ __dll int ftdispi_read_stream(struct ftdispi_context *fsc,
+   return FTDISPI_ERROR_NONE;
+ }
+ 
++static int64_t stream_ns(struct timespec t) {
++  return (int64_t)t.tv_sec * 1000000000LL + t.tv_nsec;
++}
++
++static int stream_refill(struct ftdispi_context *fsc) {
++  if (fsc->stream_draining || fsc->stream_error) return 0;
++  // At most two chunks of response data can be outstanding. Replenish before
++  // returning received data to the decoder/file workers, hiding their latency.
++  while (fsc->stream_pending <= fsc->stream_chunk) {
++    uint16_t n = fsc->stream_chunk;
++    uint8_t command[] = {SET_BITS_LOW,
++      (uint8_t)((0x0f & (fsc->bitini ^ BIT_P_CS)) | (BIT_P_GX & fsc->stream_gpo)),
++      BIT_DIR, fsc->rd_cmd, (uint8_t)(n-1), (uint8_t)((n-1)>>8)};
++    int written = spi_write_exact(fsc, command, sizeof(command));
++    if (written != (int)sizeof(command)) {
++      // A short command can have entered MPSSE: never silently resubmit it.
++      fsc->stream_error = FTDISPI_ERROR_LIB; return fsc->stream_error;
++    }
++    fsc->stream_pending += n; fsc->stream_commands++;
++  }
++  return 0;
++}
++
++__dll void ftdispi_stream_finish(struct ftdispi_context *fsc) {
++  if (!fsc || fsc->stream_draining) return;
++  fsc->stream_draining = 1;
++  clock_gettime(CLOCK_MONOTONIC, &fsc->stream_drain_until);
++  fsc->stream_drain_until.tv_sec++;
++}
++
++__dll int ftdispi_stream_read_some(struct ftdispi_context *fsc, void *rbuf,
++                                uint16_t capacity, uint8_t gpo) {
++  if (!fsc || !rbuf || !capacity || !fsc->mem) return FTDISPI_ERROR_CTX;
++  struct timespec start, end;
++  clock_gettime(CLOCK_MONOTONIC, &start);
++  if (fsc->stream_chunk) {
++    if (gpo != fsc->stream_gpo) return FTDISPI_ERROR_CMD;
++    uint64_t gap = stream_ns(start) - stream_ns(fsc->stream_returned);
++    if (gap > fsc->stream_gap_ns) fsc->stream_gap_ns = gap;
++  } else {
++    fsc->stream_chunk = capacity; fsc->stream_gpo = gpo;
++    fsc->stream_progress = start;
++  }
++  fsc->stream_calls++;
++  if (fsc->stream_error && !fsc->fc.readbuffer_remaining) return fsc->stream_error;
++  if (stream_refill(fsc) < 0) return fsc->stream_error;
++  if (!fsc->stream_pending) return 0;
++  int want = capacity;
++  if ((uint32_t)want > fsc->stream_pending) want = fsc->stream_pending;
++  int usb_error = 0;
++  int n = ftdispi_read_usb_partial(&fsc->fc, rbuf, want, &usb_error);
++  clock_gettime(CLOCK_MONOTONIC, &end);
++  if (n < 0 || n > want) { fsc->stream_error = FTDISPI_ERROR_LIB; return fsc->stream_error; }
++  fsc->stream_pending -= n; fsc->stream_bytes += n;
++  // libusb TIMEOUT=-7 and INTERRUPTED=-10 are resumable, including valid data.
++  if (usb_error == -7) fsc->stream_timeouts++;
++  if (usb_error < 0 && usb_error != -7 && usb_error != -10) fsc->stream_error = FTDISPI_ERROR_LIB;
++  if (fsc->fc.readbuffer_remaining > fsc->stream_pending) fsc->stream_error = FTDISPI_ERROR_LIB;
++  if (n) fsc->stream_progress = end;
++  else {
++    fsc->stream_idle_reads++;
++    if (stream_ns(end)-stream_ns(fsc->stream_progress) >= 1000000000LL)
++      fsc->stream_error = FTDISPI_ERROR_TO;
++  }
++  if (fsc->stream_draining && stream_ns(end) >= stream_ns(fsc->stream_drain_until) && fsc->stream_pending)
++    fsc->stream_error = FTDISPI_ERROR_TO;
++  stream_refill(fsc);
++  clock_gettime(CLOCK_MONOTONIC, &end);
++  fsc->stream_returned = end;
++  fsc->stream_read_ns += stream_ns(end) - stream_ns(start);
++  // Deliver a valid prefix before reporting a sticky fatal error on next call.
++  if (n) return n;
++  return fsc->stream_error;
++}
++
+ __dll int ftdispi_cs_deassert(struct ftdispi_context *fsc)
+ {
++  if (!fsc) return FTDISPI_ERROR_CTX;
++  if (fsc->stream_chunk || fsc->stream_error) return FTDISPI_ERROR_CMD;
+   uint8_t buf[3] = { SET_BITS_LOW, 0, BIT_DIR };
+   buf[1] = fsc->bitini; // (CS High 포함된 기본 상태)
+-  FTDI_CHECK(ftdi_write_data(&fsc->fc, buf, 3), "CS HIGH", fsc->fc);
++  FTDI_CHECK(spi_write_exact(fsc, buf, 3), "CS HIGH", fsc->fc);
+   return FTDISPI_ERROR_NONE;
+ }
+ 
+@@ -293,6 +369,7 @@ __dll int ftdispi_write_read(struct ftdispi_context *fsc,
+ 	int i, n, r;
+ 
+ 	ASSERT_CHECK(!fsc, "CTX NOT INITIALIZED", FTDISPI_ERROR_CTX);
++  if (fsc->stream_chunk || fsc->stream_error) return FTDISPI_ERROR_CMD;
+ 	ASSERT_CHECK(!((wbuf && wcount) || (rbuf && rcount)),
+ 		     "NO CMD", FTDISPI_ERROR_CMD);
+ 	n = wcount + (rcount ? 9 : 6);
+@@ -314,7 +391,7 @@ __dll int ftdispi_write_read(struct ftdispi_context *fsc,
+ 		fsc->mem[i++] = fsc->rd_cmd;
+ 		fsc->mem[i++] = (rcount - 1) & 0xFF;
+ 		fsc->mem[i++] = ((rcount - 1) >> 8) & 0xFF;
+-		FTDI_CHECK(ftdi_write_data(&fsc->fc, fsc->mem, i), "[WR]RD",
++		FTDI_CHECK(spi_write_exact(fsc, fsc->mem, i), "[WR]RD",
+ 			   fsc->fc);
+ 		for (n = 0; n < rcount;) {
+ 			FTDI_CHECK(r =
+@@ -327,7 +404,7 @@ __dll int ftdispi_write_read(struct ftdispi_context *fsc,
+ 	fsc->mem[i++] = SET_BITS_LOW;
+ 	fsc->mem[i++] = fsc->bitini;
+ 	fsc->mem[i++] = BIT_DIR;
+-	FTDI_CHECK(ftdi_write_data(&fsc->fc, fsc->mem, i), "WR", fsc->fc);
++	FTDI_CHECK(spi_write_exact(fsc, fsc->mem, i), "WR", fsc->fc);
+ 
+ 	return ftdispi_wait(fsc, BIT_P_CS, fsc->bitini, RETRY_MAX);
+ }
+@@ -355,13 +432,29 @@ __dll int ftdispi_setgpo(struct ftdispi_context *fsc, uint8_t gpo)
+ 	buf[0] = SET_BITS_LOW;
+ 	buf[1] = fsc->bitini;
+ 	buf[2] = BIT_DIR;
+-	FTDI_CHECK(ftdi_write_data(&fsc->fc, buf, 3), "SETGPO", fsc->fc);
++	FTDI_CHECK(spi_write_exact(fsc, buf, 3), "SETGPO", fsc->fc);
+ 	return ftdispi_wait(fsc, BIT_P_GX, fsc->bitini, RETRY_MAX);
+ }
+ 
+ __dll int ftdispi_close(struct ftdispi_context *fsc, int close_ftdi)
+ {
+ 	ASSERT_CHECK(!fsc, "CTX NOT INITIALIZED", FTDISPI_ERROR_CTX);
++  int result = FTDISPI_ERROR_NONE;
++  if (fsc->stream_chunk || fsc->stream_error) {
++    if (fsc->stream_pending) {
++      fprintf(stderr, "SPI: aborting undrained response=%u bytes\n", fsc->stream_pending);
++      result = FTDISPI_ERROR_TO;
++    }
++    // Abort queued clocks before purging their USB responses. Re-enter MPSSE
++    // with idle GPIOs so CS is high, not left asserted behind an unread command.
++    uint8_t idle[] = {SET_BITS_LOW, fsc->bitini, BIT_DIR};
++    if (ftdi_set_bitmode(&fsc->fc, 0, BITMODE_RESET) < 0 ||
++        ftdi_tcioflush(&fsc->fc) < 0 ||
++        ftdi_set_bitmode(&fsc->fc, 0, BITMODE_MPSSE) < 0 ||
++        spi_write_exact(fsc, idle, sizeof(idle)) != (int)sizeof(idle)) {
++      fprintf(stderr, "SPI: could not restore idle GPIO on close\n"); result = FTDISPI_ERROR_LIB;
++    }
++  }
+ 	if (fsc->mem) {
+ 		free(fsc->mem);
+ 		fsc->mem = 0;
+@@ -371,7 +464,7 @@ __dll int ftdispi_close(struct ftdispi_context *fsc, int close_ftdi)
+ 		ftdi_usb_close(&fsc->fc);
+ 		ftdi_deinit(&fsc->fc);
+ 	}
+-	return FTDISPI_ERROR_NONE;
++	return result;
+ }
+ 
+ static int ftdispi_realloc(struct ftdispi_context *fsc, size_t size)
+@@ -394,11 +487,11 @@ static int ftdispi_wait(struct ftdispi_context *fsc, uint8_t mask,
+ 	uint8_t cmd = GET_BITS_LOW;
+ 	uint8_t ret = 0;
+ 
+-	FTDI_CHECK(ftdi_write_data(&fsc->fc, &cmd, 1), "GBLW", fsc->fc);
++	FTDI_CHECK(spi_write_exact(fsc, &cmd, 1), "GBLW", fsc->fc);
+ 	FTDI_CHECK(ftdi_read_data(&fsc->fc, &ret, 1), "GBLR", fsc->fc);
+ 	while (maxtry-- && (ret & mask) != (value & mask)) {
+ 		usleep(RETRY_TIME);
+-		FTDI_CHECK(ftdi_write_data(&fsc->fc, &cmd, 1), "GBLW", fsc->fc);
++		FTDI_CHECK(spi_write_exact(fsc, &cmd, 1), "GBLW", fsc->fc);
+ 		FTDI_CHECK(ftdi_read_data(&fsc->fc, &ret, 1), "GBLR", fsc->fc);
+ 	}
+ 
+diff --git a/openpilot/system/flexray_logd/libftdi/ftdispi.h b/openpilot/system/flexray_logd/libftdi/ftdispi.h
+index 53e3c69..51b4ba8 100644
+--- a/openpilot/system/flexray_logd/libftdi/ftdispi.h
++++ b/openpilot/system/flexray_logd/libftdi/ftdispi.h
+@@ -43,6 +43,7 @@
+ # include <unistd.h>
+ # include <string.h>
+ # include <stdint.h>
++# include <time.h>
+ 
+ 
+ # ifdef WIN32
+@@ -97,6 +98,13 @@ struct ftdispi_context {
+                                   * functions */
+     size_t              memsize; /**< @brief size of the memory region for write
+                                   * and read functions */
++    uint32_t actual_clock_hz, stream_pending;
++    uint16_t stream_chunk;
++    uint8_t stream_gpo;
++    int stream_error, stream_draining;
++    struct timespec stream_progress, stream_returned, stream_drain_until;
++    uint64_t stream_bytes, stream_commands, stream_idle_reads, stream_timeouts;
++    uint64_t stream_gap_ns, stream_read_ns, stream_calls;
+ };
+ 
+ 
+@@ -196,6 +204,18 @@ __dll int
+ ftdispi_read_stream(struct ftdispi_context *fsc,
+                     void *rbuf, uint16_t rcount, uint8_t gpo);
+ 
++/* Two-command pipeline; return available bytes, zero for transient empty data,
++ * or negative FTDISPI error. First capacity sets the command chunk size.
++ * Never mix other MPSSE commands into an active stream. */
++__dll int ftdispi_stream_read_some(struct ftdispi_context *fsc, void *rbuf,
++                                uint16_t capacity, uint8_t gpo);
++/* Stop refilling, then drain with read_some (fixed one-second finish bound). */
++__dll void ftdispi_stream_finish(struct ftdispi_context *fsc);
++__dll int ftdispi_cs_deassert(struct ftdispi_context *fsc);
++/* One USB transfer; status removal and partial data/error reported separately. */
++int ftdispi_read_usb_partial(struct ftdi_context *fc, unsigned char *data,
++                           int capacity, int *usb_error);
++
+ /**
+  * @brief Set general purpose output and then write from wbuf to spi and read
+  * from spi to rbuf. Returns only when CS get back to idle state.
+diff --git a/openpilot/system/flexray_logd/libftdi/ftdispi_usb.c b/openpilot/system/flexray_logd/libftdi/ftdispi_usb.c
+new file mode 100644
+index 0000000..362e3b2
+--- /dev/null
++++ b/openpilot/system/flexray_logd/libftdi/ftdispi_usb.c
+@@ -0,0 +1,37 @@
++#include <libusb.h>
++#include "ftdispi.h"
++
++int ftdispi_read_usb_partial(struct ftdi_context *fc, unsigned char *data,
++                           int capacity, int *usb_error) {
++  if (!fc || !data || capacity <= 0 || !usb_error) return -1;
++  *usb_error = 0;
++  if (fc->readbuffer_remaining) {
++    unsigned n = fc->readbuffer_remaining;
++    if (n > (unsigned)capacity) n = capacity;
++    memcpy(data, fc->readbuffer + fc->readbuffer_offset, n);
++    fc->readbuffer_offset += n; fc->readbuffer_remaining -= n;
++    return n;
++  }
++  if (!fc->usb_dev || !fc->readbuffer || !fc->readbuffer_chunksize || fc->max_packet_size < 2) {
++    *usb_error = LIBUSB_ERROR_NO_DEVICE; return 0;
++  }
++  int raw = 0;
++  *usb_error = libusb_bulk_transfer(fc->usb_dev, fc->out_ep, fc->readbuffer,
++                                  fc->readbuffer_chunksize, &raw, fc->usb_read_timeout);
++  if (raw < 0 || (unsigned)raw > fc->readbuffer_chunksize) return -1;
++  unsigned source = 0, payload = 0;
++  while (source < (unsigned)raw) {
++    unsigned packet = raw - source;
++    if (packet > fc->max_packet_size) packet = fc->max_packet_size;
++    if (packet > 2) {
++      memmove(fc->readbuffer + payload, fc->readbuffer + source + 2, packet - 2);
++      payload += packet - 2;
++    }
++    source += packet;
++  }
++  unsigned n = payload;
++  if (n > (unsigned)capacity) n = capacity;
++  memcpy(data, fc->readbuffer, n);
++  fc->readbuffer_offset = n; fc->readbuffer_remaining = payload - n;
++  return n;
++}
+diff --git a/openpilot/system/flexray_logd/tests/mocks/libusb.h b/openpilot/system/flexray_logd/tests/mocks/libusb.h
+new file mode 100644
+index 0000000..8c8f7e0
+--- /dev/null
++++ b/openpilot/system/flexray_logd/tests/mocks/libusb.h
+@@ -0,0 +1,9 @@
++#ifndef SPI_TEST_LIBUSB_H
++#define SPI_TEST_LIBUSB_H
++struct libusb_device_handle;
++#define LIBUSB_ERROR_NO_DEVICE -4
++#define LIBUSB_ERROR_TIMEOUT -7
++#define LIBUSB_ERROR_INTERRUPTED -10
++int libusb_bulk_transfer(struct libusb_device_handle *, unsigned char,
++                         unsigned char *, int, int *, unsigned int);
++#endif
+diff --git a/openpilot/system/flexray_logd/tests/test_reader.c b/openpilot/system/flexray_logd/tests/test_reader.c
+index 8cee137..3517ff4 100644
+--- a/openpilot/system/flexray_logd/tests/test_reader.c
++++ b/openpilot/system/flexray_logd/tests/test_reader.c
+@@ -24,7 +24,7 @@ int __wrap_ftdi_read_data(struct ftdi_context *context, unsigned char *data, int
+   if (n > 0) memset(data, 0x55, n);
+   return n;
+ }
+-int __wrap_ftdispi_read_stream(struct ftdispi_context *context, void *data, uint16_t count, uint8_t gpo) {
++int __wrap_ftdispi_stream_read_some(struct ftdispi_context *context, void *data, uint16_t count, uint8_t gpo) {
+   (void)context; (void)data; (void)count; (void)gpo;
+   return FTDISPI_ERROR_TO;
+ }
+diff --git a/openpilot/system/flexray_logd/tests/test_spi_pipeline.c b/openpilot/system/flexray_logd/tests/test_spi_pipeline.c
+new file mode 100644
+index 0000000..ace84f2
+--- /dev/null
++++ b/openpilot/system/flexray_logd/tests/test_spi_pipeline.c
+@@ -0,0 +1,141 @@
++#include <assert.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include "ftdispi.h"
++#include "flexray_reader.h"
++#include "mocks/libusb.h"
++
++static unsigned writes, bulk_calls, commands, outstanding, wire_position;
++static int short_on_write, next_error, payload_limit = -1, modes, purges;
++static unsigned char last_write[32];
++static int last_size;
++static void reset_mock(void) {
++  writes=bulk_calls=commands=outstanding=wire_position=0;
++  short_on_write=next_error=modes=purges=0;payload_limit=-1;
++}
++static void init(struct ftdispi_context *x) {
++  memset(x,0,sizeof(*x));reset_mock();
++  x->mem=malloc(64);x->memsize=64;x->rd_cmd=MPSSE_DO_READ;x->bitini=8;
++  x->fc.type=TYPE_4232H;x->fc.usb_dev=(struct libusb_device_handle *)1;
++  x->fc.readbuffer=malloc(64);x->fc.readbuffer_chunksize=32;x->fc.max_packet_size=8;
++}
++static void release(struct ftdispi_context *x) { free(x->mem);free(x->fc.readbuffer); }
++int ftdi_write_data(struct ftdi_context *x, const unsigned char *data, int size) {
++  (void)x;writes++;last_size=size;memcpy(last_write,data,size<32?size:32);
++  if (short_on_write==(int)writes) return size-1;
++  if (size==6 && data[0]==SET_BITS_LOW && data[3]==MPSSE_DO_READ) {
++    outstanding+=1+data[4]+((unsigned)data[5]<<8);commands++;
++  }
++  return size;
++}
++int libusb_bulk_transfer(struct libusb_device_handle *h, unsigned char ep,
++                        unsigned char *data, int size, int *actual, unsigned timeout) {
++  (void)h;(void)ep;(void)timeout;bulk_calls++;
++  unsigned limit=outstanding;
++  if (payload_limit>=0 && limit>(unsigned)payload_limit) limit=payload_limit;
++  unsigned count=0,payload=0;
++  while (count+2<=(unsigned)size && payload<limit) {
++    data[count++]=0x01;data[count++]=0x60;
++    for (int b=0;b<6 && count<(unsigned)size && payload<limit;b++) {
++      data[count++]=(unsigned char)wire_position++;payload++;
++    }
++  }
++  if (!count && size>=2) { data[0]=0x01;data[1]=0x60;count=2; }
++  outstanding-=payload;*actual=count;
++  int error=next_error;next_error=0;payload_limit=-1;return error;
++}
++int ftdi_init(struct ftdi_context *x) { memset(x,0,sizeof(*x));return 0; }
++int ftdi_usb_open(struct ftdi_context *x,int v,int p) { (void)x;(void)v;(void)p;return -5; }
++const char *ftdi_get_error_string(struct ftdi_context *x) { (void)x;return "mock"; }
++int ftdi_read_data(struct ftdi_context *x,unsigned char *p,int n) { (void)x;(void)p;(void)n;return 0; }
++int ftdi_set_interface(struct ftdi_context *x,enum ftdi_interface n) { (void)x;(void)n;return 0; }
++int ftdi_usb_reset(struct ftdi_context *x) { (void)x;return 0; }
++int ftdi_set_latency_timer(struct ftdi_context *x,unsigned char n) { (void)x;(void)n;return 0; }
++int ftdi_set_bitmode(struct ftdi_context *x,unsigned char a,unsigned char b) { (void)x;(void)a;(void)b;modes++;return 0; }
++int ftdi_write_data_set_chunksize(struct ftdi_context *x,unsigned n) { (void)x;(void)n;return 0; }
++int ftdi_read_data_set_chunksize(struct ftdi_context *x,unsigned n) { (void)x;(void)n;return 0; }
++int ftdi_tcioflush(struct ftdi_context *x) { (void)x;purges++;return 0; }
++int ftdi_usb_close(struct ftdi_context *x) { (void)x;return 0; }
++void ftdi_deinit(struct ftdi_context *x) { (void)x; }
++static void bytes(const unsigned char *p,int n,unsigned *expected) {
++  for (int i=0;i<n;i++) assert(p[i]==(unsigned char)(*expected)++);
++}
++int main(void) {
++  struct ftdispi_context x;unsigned char data[128];unsigned expected;int n,error;
++  init(&x);
++  unsigned speeds[]={7500000,10000000,6000000,1000000,3750000,100,30000000};
++  for (unsigned i=0;i<sizeof(speeds)/sizeof(speeds[0]);i++) {
++    assert(ftdispi_setclock(&x,speeds[i])==0);
++    assert(last_size==4 && last_write[0]==(speeds[i]>6000000?0x8a:0x8b));
++    unsigned base=last_write[0]==0x8a?30000000:6000000;
++    unsigned actual=base/(1+last_write[2]+((unsigned)last_write[3]<<8));
++    assert(actual==x.actual_clock_hz && actual<=speeds[i]);
++  }
++  short_on_write=writes+1;assert(ftdispi_setclock(&x,7500000)==FTDISPI_ERROR_LIB);
++  assert(ftdispi_setclock(&x,1000000)==FTDISPI_ERROR_CMD);release(&x);
++  init(&x);x.fc.type=TYPE_2232C;assert(ftdispi_setclock(&x,7500000)==FTDISPI_ERROR_CLK);
++  assert(ftdispi_setclock(&x,1000000)==0 && last_size==3);release(&x);
++  puts("SPI clock: H-class divide transitions, rounding, legacy limit, short write OK");
++
++  init(&x);outstanding=100;expected=0;
++  assert(ftdispi_read_usb_partial(&x.fc,data,4,&error)==4 && error==0);bytes(data,4,&expected);
++  unsigned before=bulk_calls;
++  n=ftdispi_read_usb_partial(&x.fc,data,128,&error);assert(n==20 && bulk_calls==before);bytes(data,n,&expected);
++  next_error=LIBUSB_ERROR_TIMEOUT;payload_limit=3;
++  n=ftdispi_read_usb_partial(&x.fc,data,128,&error);assert(n==3 && error==LIBUSB_ERROR_TIMEOUT);bytes(data,n,&expected);
++  next_error=LIBUSB_ERROR_NO_DEVICE;payload_limit=3;
++  n=ftdispi_read_usb_partial(&x.fc,data,128,&error);assert(n==3 && error==LIBUSB_ERROR_NO_DEVICE);bytes(data,n,&expected);
++  release(&x);puts("SPI USB: status stripping, leftovers, partial timeout/fatal data OK");
++
++  init(&x);expected=0;
++  for (int i=0;i<200;i++) {
++    n=ftdispi_stream_read_some(&x,data,16,0);assert(n>0);bytes(data,n,&expected);
++    assert(x.stream_pending<=32 && commands==x.stream_commands);
++  }
++  assert(ftdispi_setclock(&x,7500000)==FTDISPI_ERROR_CMD);
++  assert(ftdispi_cs_deassert(&x)==FTDISPI_ERROR_CMD);
++  before=commands;ftdispi_stream_finish(&x);
++  while (x.stream_pending) { n=ftdispi_stream_read_some(&x,data,16,0);assert(n>0);bytes(data,n,&expected); }
++  assert(ftdispi_stream_read_some(&x,data,16,0)==0 && commands==before && outstanding==0);
++  assert(x.stream_bytes==expected);
++  assert(ftdispi_close(&x,1)==0 && modes==2 && purges==1 && last_size==3 && last_write[1]==8);
++  release(&x);puts("SPI pipeline: bounded window, exact order, no duplicate commands, finish/idle GPIO OK");
++
++  init(&x);next_error=LIBUSB_ERROR_TIMEOUT;payload_limit=0;
++  assert(ftdispi_stream_read_some(&x,data,16,0)==0 && commands==2);
++  expected=0;n=ftdispi_stream_read_some(&x,data,16,0);assert(n>0);bytes(data,n,&expected);
++  release(&x);
++  init(&x);next_error=LIBUSB_ERROR_TIMEOUT;payload_limit=0;
++  assert(ftdispi_stream_read_some(&x,data,16,0)==0);
++  x.stream_progress.tv_sec-=2;next_error=LIBUSB_ERROR_TIMEOUT;payload_limit=0;
++  assert(ftdispi_stream_read_some(&x,data,16,0)==FTDISPI_ERROR_TO && commands==2);release(&x);
++  init(&x);short_on_write=1;
++  assert(ftdispi_stream_read_some(&x,data,16,0)==FTDISPI_ERROR_LIB);
++  before=writes;assert(ftdispi_stream_read_some(&x,data,16,0)==FTDISPI_ERROR_LIB && writes==before);release(&x);
++  puts("SPI recovery: soft timeout resumes, no-progress bound, short command is not retried OK");
++
++  init(&x);short_on_write=3;expected=0;
++  n=ftdispi_stream_read_some(&x,data,16,0);assert(n==16);bytes(data,n,&expected);
++  n=ftdispi_stream_read_some(&x,data,16,0);assert(n==8);bytes(data,n,&expected);
++  before=writes;assert(ftdispi_stream_read_some(&x,data,16,0)==FTDISPI_ERROR_LIB && writes==before);release(&x);
++  init(&x);next_error=LIBUSB_ERROR_NO_DEVICE;payload_limit=3;
++  n=ftdispi_stream_read_some(&x,data,16,0);assert(n==3);expected=0;bytes(data,n,&expected);
++  before=writes;assert(ftdispi_stream_read_some(&x,data,16,0)==FTDISPI_ERROR_LIB && writes==before);release(&x);
++  init(&x);assert(ftdispi_stream_read_some(&x,data,16,0)>0);
++  ftdispi_stream_finish(&x);x.stream_drain_until.tv_sec-=2;before=commands;
++  while ((n=ftdispi_stream_read_some(&x,data,16,0))>0) {}
++  assert(n==FTDISPI_ERROR_TO && commands==before);release(&x);
++  init(&x);assert(ftdispi_stream_read_some(&x,data,65535,0)>0 && x.stream_pending<=131070);release(&x);
++  puts("SPI faults: prefix preserved before fatal error, fixed drain bound, 16-bit maximum OK");
++  struct flexray_reader reader={0};reader.type=FT_SPI;reader.spi_owned=true;
++  init(&reader.spi);payload_limit=0;next_error=LIBUSB_ERROR_TIMEOUT;
++  assert(flexray_reader_read(&reader,data,16)==0 && flexray_reader_pending(&reader));
++  payload_limit=3;next_error=LIBUSB_ERROR_TIMEOUT;
++  assert(flexray_reader_read(&reader,data,16)==3);
++  before=commands;flexray_reader_finish(&reader);
++  while (flexray_reader_pending(&reader)) assert(flexray_reader_read(&reader,data,16)>0);
++  assert(commands==before);flexray_reader_close(&reader);release(&reader.spi);
++  puts("SPI reader: partial return, soft idle, bounded pending drain integration OK");
++  puts("TEST_SUMMARY spi_pipeline failures=0");return 0;
++}

@@ -1,5 +1,6 @@
 # Local-only Vivado 2024.2 validation. Does not generate/program a bitstream.
-# argv: 0 = telemetry disabled, 1 = telemetry enabled (verification only).
+# argv: 0 = frame telemetry disabled, 1 = enabled (verification only).
+#       Diagnostic CAN 0x1FA is enabled in both configurations.
 #       prepare = refresh/copy the saved BD, skip synthesis/implementation.
 set repo [file normalize [file join [file dirname [info script]] ..]]
 if {[catch {
@@ -50,6 +51,36 @@ foreach connection $connections {
 }
 }
 puts "REFRESH_MODULE_DONE"
+proc refresh_logging_reference {name reference} {
+  set connections {}
+  set configuration {}
+  foreach parameter {ENABLED CAN_ID PERIOD_CYCLES MAX_AGE_CYCLES} {
+    if {[lsearch -exact [list_property [get_bd_cells $name]] CONFIG.$parameter] >= 0} {
+      lappend configuration CONFIG.$parameter [get_property CONFIG.$parameter [get_bd_cells $name]]
+    }
+  }
+  foreach pin [get_bd_pins -of_objects [get_bd_cells $name]] {
+    set net [get_bd_nets -quiet -of_objects $pin]
+    if {[llength $net]} { lappend connections [list [file tail $pin] $net] }
+  }
+  delete_bd_objs [get_bd_cells $name]
+  create_bd_cell -type module -reference $reference $name
+  if {[llength $configuration]} { set_property -dict $configuration [get_bd_cells $name] }
+  foreach connection $connections {
+    connect_bd_net -net [lindex $connection 1] [get_bd_pins $name/[lindex $connection 0]]
+  }
+}
+if {[llength [get_bd_pins -quiet flexray_interceptor_0/log_stats]] == 0 ||
+    [get_property LEFT [get_bd_pins flexray_interceptor_0/log_stats]] != 383} {
+  refresh_logging_reference flexray_interceptor_0 flexray_interceptor
+}
+if {[llength [get_bd_cells -quiet flexray_log_can_diagnostics_0]] &&
+    [get_property LEFT [get_bd_pins flexray_log_can_diagnostics_0/stats]] != 383} {
+  refresh_logging_reference flexray_log_can_diagnostics_0 flexray_log_can_diagnostics
+}
+if {[llength [get_bd_nets -quiet -of_objects [get_bd_pins flexray_interceptor_0/spi_byte_done]]] == 0} {
+  connect_bd_net [get_bd_pins SPI_SLAVE_0/DOUT_VLD] [get_bd_pins flexray_interceptor_0/spi_byte_done]
+}
 if {[llength [get_bd_cells -quiet flexray_can_telemetry_0]] == 0} {
   create_bd_cell -type module -reference flexray_can_telemetry flexray_can_telemetry_0
   connect_bd_net [get_bd_pins clk_wiz_0/clk_out1] [get_bd_pins flexray_can_telemetry_0/src_clk]
@@ -61,6 +92,26 @@ if {[llength [get_bd_cells -quiet flexray_can_telemetry_0]] == 0} {
   connect_bd_net [get_bd_pins joystick_decoder_0/telemetry_ready] [get_bd_pins flexray_can_telemetry_0/m_ready]
 }
 if {$mode eq "1"} { set enabled true } else { set enabled false }
+if {[llength [get_bd_cells -quiet flexray_log_can_diagnostics_0]] == 0} {
+  create_bd_cell -type module -reference flexray_log_can_diagnostics flexray_log_can_diagnostics_0
+  create_bd_cell -type module -reference can_telemetry_mux can_telemetry_mux_0
+  connect_bd_net [get_bd_pins clk_wiz_0/clk_out1] [get_bd_pins flexray_log_can_diagnostics_0/src_clk]
+  connect_bd_net [get_bd_pins clk_wiz_0/clk_out3] [get_bd_pins flexray_log_can_diagnostics_0/dst_clk] [get_bd_pins can_telemetry_mux_0/clk]
+  connect_bd_net [get_bd_pins util_vector_logic_0/Res] [get_bd_pins flexray_log_can_diagnostics_0/rst] [get_bd_pins can_telemetry_mux_0/rst]
+  connect_bd_net [get_bd_pins flexray_interceptor_0/log_stats] [get_bd_pins flexray_log_can_diagnostics_0/stats]
+  foreach signal {valid data} {
+    disconnect_bd_net [get_bd_nets -of_objects [get_bd_pins joystick_decoder_0/telemetry_$signal]] [get_bd_pins joystick_decoder_0/telemetry_$signal]
+    connect_bd_net [get_bd_pins flexray_can_telemetry_0/m_$signal] [get_bd_pins can_telemetry_mux_0/a_$signal]
+    connect_bd_net [get_bd_pins flexray_log_can_diagnostics_0/m_$signal] [get_bd_pins can_telemetry_mux_0/b_$signal]
+    connect_bd_net [get_bd_pins can_telemetry_mux_0/m_$signal] [get_bd_pins joystick_decoder_0/telemetry_$signal]
+  }
+  disconnect_bd_net [get_bd_nets -of_objects [get_bd_pins flexray_can_telemetry_0/m_ready]] [get_bd_pins flexray_can_telemetry_0/m_ready]
+  connect_bd_net [get_bd_pins can_telemetry_mux_0/a_ready] [get_bd_pins flexray_can_telemetry_0/m_ready]
+  connect_bd_net [get_bd_pins can_telemetry_mux_0/b_ready] [get_bd_pins flexray_log_can_diagnostics_0/m_ready]
+  connect_bd_net [get_bd_pins joystick_decoder_0/telemetry_ready] [get_bd_pins can_telemetry_mux_0/m_ready]
+}
+set_property CONFIG.ENABLED true [get_bd_cells flexray_log_can_diagnostics_0]
+set_property CONFIG.CAN_ID 506 [get_bd_cells flexray_log_can_diagnostics_0]
 if {[llength [get_bd_cells -quiet control_snapshot_0]] == 0} {
   create_bd_cell -type module -reference control_snapshot control_snapshot_0
   connect_bd_net [get_bd_pins clk_wiz_0/clk_out3] [get_bd_pins control_snapshot_0/src_clk]
@@ -73,7 +124,8 @@ if {[llength [get_bd_cells -quiet control_snapshot_0]] == 0} {
   }
 }
 set_property CONFIG.ENABLED $enabled [get_bd_cells flexray_can_telemetry_0]
-set_property CONFIG.ENABLE_CAN_TELEMETRY $enabled [get_bd_cells joystick_decoder_0]
+# The shared transmitter is needed for diagnostics even with frame telemetry off.
+set_property CONFIG.ENABLE_CAN_TELEMETRY true [get_bd_cells joystick_decoder_0]
 validate_bd_design
 save_bd_design
 if {$mode eq "prepare"} {
@@ -89,7 +141,7 @@ if {$mode eq "prepare"} {
     set contents [string map {local_verify.gen flexray-interceptor-vivado.gen} $contents]
     set channel [open [file join $sources bd bendbeam ip $name ${name}.xci] w]; puts -nonewline $channel $contents; close $channel
   }
-  puts "PREPARE_PASS: telemetry disabled; source BD refreshed"
+  puts "PREPARE_PASS: frame telemetry disabled; diagnostic CAN 0x1FA enabled; source BD refreshed"
   exit
 }
 generate_target all [get_files bendbeam.bd]
@@ -99,7 +151,14 @@ add_files -fileset constrs_1 [file join $repo flexray-interceptor-vivado.srcs co
 set_property top bendbeam_wrapper [current_fileset]
 update_compile_order -fileset sources_1
 synth_design -top bendbeam_wrapper -part xa7s50csga324-1Q -flatten_hierarchy rebuilt
+set dadc_rams [get_cells -hierarchical -filter {NAME =~ *dadc_queue* && REF_NAME =~ RAM*}]
+set bcm_rams [get_cells -hierarchical -filter {NAME =~ *bcm_queue* && REF_NAME =~ RAM*}]
+if {[llength $dadc_rams] == 0 || [llength $bcm_rams] == 0} {
+  error "Per-direction logging FIFOs did not infer RAM storage"
+}
+puts "LOG_FIFO_RAM_RESULT dadc=[llength $dadc_rams] bcm=[llength $bcm_rams] depth=32"
 read_xdc [file join $repo flexray-interceptor-vivado.srcs constrs_1 new control_snapshot_cdc.xdc]
+read_xdc [file join $repo flexray-interceptor-vivado.srcs constrs_1 new spi_cdc.xdc]
 write_checkpoint -force [file join $build synthesized.dcp]
 opt_design
 place_design
@@ -114,12 +173,14 @@ report_cdc -details -file [file join $build cdc.rpt]
 report_methodology -file [file join $build methodology.rpt]
 report_drc -file [file join $build drc.rpt]
 report_utilization -file [file join $build utilization.rpt]
+source [file join $repo scripts check_spi_paths.tcl]
 write_checkpoint -force [file join $build routed.dcp]
+check_spi_paths $build
 set setup [get_timing_paths -delay_type max -max_paths 1]
 set hold [get_timing_paths -delay_type min -max_paths 1]
 set sync_count [llength [get_cells -hierarchical -filter {NAME =~ */control_snapshot_0/U0/request_meta_reg || NAME =~ */control_snapshot_0/U0/ack_meta_reg}]]
 if {$sync_count != 2} { error "Control CDC synchronizer constraints did not match both toggle stages" }
-puts "VERIFY_RESULT telemetry=$enabled WNS=[get_property SLACK $setup] WHS=[get_property SLACK $hold]"
+puts "VERIFY_RESULT telemetry=$enabled diagnostics=true CAN_ID=0x1FA WNS=[get_property SLACK $setup] WHS=[get_property SLACK $hold]"
 if {[get_property SLACK $setup] < 0 || [get_property SLACK $hold] < 0} {
   error "Setup/hold timing constraints are not met; see timing_summary.rpt"
 }

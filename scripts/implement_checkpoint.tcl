@@ -11,6 +11,9 @@ if {[catch {
   set_param general.maxThreads 4
   open_checkpoint [file join $source_build synthesized.dcp]
   read_xdc [file join $repo flexray-interceptor-vivado.srcs constrs_1 new control_snapshot_cdc.xdc]
+  if {[llength [get_cells -quiet -hierarchical -filter {NAME =~ */SPI_SLAVE_0/U0/tx_valid_reg}]]} {
+    read_xdc [file join $repo flexray-interceptor-vivado.srcs constrs_1 new spi_cdc.xdc]
+  }
   set first_stages [get_cells -hierarchical -filter {NAME =~ */control_snapshot_0/U0/request_meta_reg || NAME =~ */control_snapshot_0/U0/ack_meta_reg}]
   if {[llength $first_stages] != 2} { error "CDC constraints do not match both synchronizer stages" }
   opt_design
@@ -33,6 +36,10 @@ if {[catch {
   report_drc -file [file join $build drc.rpt]
   report_utilization -file [file join $build utilization.rpt]
   write_checkpoint -force [file join $build routed.dcp]
+  if {[llength [get_cells -quiet -hierarchical -filter {NAME =~ */SPI_SLAVE_0/U0/tx_valid_reg}]]} {
+    source [file join $repo scripts check_spi_paths.tcl]
+    check_spi_paths $build
+  }
   set setup [get_timing_paths -delay_type max -max_paths 1]
   set hold [get_timing_paths -delay_type min -max_paths 1]
   puts "IMPLEMENT_RESULT mode=[lindex $argv 0] WNS=[get_property SLACK $setup] WHS=[get_property SLACK $hold]"

@@ -1,5 +1,82 @@
 # 수정 기록
 
+## 2026-11-09 — SPI/FT4232H USB 개선 후속
+
+- SPI RX/TX 시프트 상태를 분리하고 마지막 상승 에지에서 RX 완료를 확정한다.
+  마지막 하강과 CS 해제가 겹쳐도 완료 바이트가 다시 전송되지 않는다.
+  부분 바이트 중단 시 재전송, 빈 전송의 0 패딩, 늦게 도착한 TX 데이터의
+  바이트 경계 적용은 보존한다.
+- 입력 동기화기 속성을 명시하고 `spi_cdc.xdc`는 입력 pin→첫 단계만 제외한다.
+  두 번째 단계의 실제 timing path와 속성을 검사하며 MISO는 IOB에 배치한다.
+  출력이 미사용인 MOSI 로직의 제거는 허용한다. 외부 배선 지연/FTDI 측정값이
+  없어 외부 setup/hold 여유는 미확정으로 남겼다. clock-wide false path는 추가하지 않았다.
+- 전체 회귀 13개 스크립트/16개 top 통과. 7.5 MHz 연속 전송 25위상 및 짧은
+  CS 종료 125조건에서 오류 0. 10/12.5 MHz 이상적 모델 결과는 실물 보장이 아니다.
+- 내부 routed WNS/WHS: 기본 구성 +0.536/+0.007 ns, 데이터 텔레메트리 활성
+  검증 구성 +0.230/+0.011 ns. 실패 endpoint 0/0. 경로는
+  `tests/design_0_spi2_scoped.sim/`, `tests/design_1_spi2.sim/`이다.
+  기본 구성은 동일 HDL 합성 체크포인트에서 scoped 제약을 재적용해 구현하고
+  별도 SPI 경로 검사를 통과했다. methodology 0건, DRC 오류 0건이며 기존 경고 유형은 남아 있다.
+- 호스트 수정은 로컬 복사본에서 `host-patches/sunnypilot-spi-usb.patch`로 만들었다.
+  FTDI divide-by-5/분주 반올림, 최대 2청크 요청, 부분 수신 보존, timeout 재개,
+  fatal 이전 prefix 전달, 종료 drain/고정 deadline, 주기 계측을 포함한다.
+  깨끗한 기준 코드에 적용 후 실제 C 코드/reader의 native GCC -Werror 모의 시험을
+  통과했다. Linux 앱 전체 빌드와 실제 USB 측정은 미수행이며 외부 push도 하지 않았다.
+- 지시문은 `docs/sunnypilot-flexray-handoff.txt` 하나이며 패치 본문을 내장한다.
+  `spi-review.txt`는 개선 전 재현 기록으로 구분했다. 보드 프로그래밍은 수행하지 않았다.
+
+## 2026-11-09 — 양방향 로그 FIFO 및 CAN 진단
+
+- DADC→BCM 출력과 BCM 측→DADC 출력을 각각 디코딩한다. 방향별 독립 FIFO는
+  완전한 프레임 32개를 저장하며 공통 활성 로거 요청은 별도로 유지한다.
+  처음의 2개 대기 슬롯에서 확장하면서 packed record와 LUTRAM을 사용해
+  프레임마다 플립플롭을 늘리는 비용을 줄였다. 깊이는 1~64로 설정할 수 있다.
+  라운드로빈 중재 후 기존 128 KiB 바이트 FIFO와 SPI 경로를 사용한다.
+- DADC 로그의 `CA A0`는 유지하고 BCM 측 로그는 `CA 80`으로 구분한다.
+  SPI wire 형식에 timestamp/sequence/진단 바이트를 추가하지 않는다.
+- 정상 수신·방향별 큐 드롭·큐 최대 사용량·바이트 FIFO 사용량/최대 사용량·
+  full 진입 횟수를 집계한다. 큐가 가득 차도 FlexRay 전달을 기다리게 하지 않는다.
+- 사용자 지정 표준 CAN ID `0x1FA`, DLC 8로 1초마다 같은 시점의 카운터를 담은
+  48바이트 스냅샷을 6바이트씩 8페이지로 전송한다. packed 버전 2의 첫 바이트는
+  `0x20~0x27`이며 다음 바이트는 스냅샷 번호다. 예약 바이트 없이 12개 little-endian
+  uint32를 보낸다. 항목은 페이지 경계에 걸칠 수 있어 호스트가 먼저 재조립한다.
+  기존 비동기 CAN 큐의 full/만료 처리 및 단일 송신기를 재사용한다.
+  데이터 텔레메트리와 진단 요청은 CAN 클록 영역의 공통 중재기를 통과한다.
+- 7.5 MHz SPI의 여유를 확인하기 위해 방향별 입력 로그 바이트 요구량,
+  SPI prefetch가 받은 유효 바이트, 패딩 포함 완료 SPI 바이트를 추가했다.
+  마지막 항목은 실제 `SPI_SLAVE.DOUT_VLD`에서 집계한다. 바이트 누계는
+  32비트 순환으로 장시간 rate 계산이 가능하며 이벤트 누계는 포화한다.
+  USB/호스트 도착 확인이나 FlexRay 버스 점유율과는 다른 지표다.
+- 저장된 BD에서는 진단과 공통 CAN 송신기를 활성화했다. 차량 FlexRay 데이터
+  텔레메트리는 비활성 상태이며 HDL enable generic 기본값도 false를 유지한다.
+  `TEST_LCA`는 false이다. BD와 모듈 참조 descriptor는 Vivado로 재생성했다.
+- SPI 7.5 MHz는 사용자가 기존에 이상 없이 확인했다고 보고한 설정이다.
+  이번 작업에서 10 MHz 시험·보드 프로그래밍·실차 검증은 수행하지 않았다.
+- 호스트 수정 지시문: `docs/sunnypilot-flexray-handoff.txt`. 양방향 파서,
+  rlog source 번호, 유실 통계, 진단 CAN 바이트 맵과 테스트를 명시했다.
+- 추가 시험은 양방향 동시 도착/큐 full/포인터 순환/요청 유지/reset,
+  양방향 0~26 및 254바이트 로그의 전체 바이트, 혼합 방향/같은 ID/CRC 불량,
+  FIFO 사용량, 진단 스냅샷/CDC/공통 송신기의 CAN CRC·스터핑·외부 ACK를 포함한다.
+  에코 모델의 50 ns는 보드 측정값이 아닌 시험 가정이다. 지연 없는 에코 모델은
+  기존 전달 로직에서 실패하므로 실제 PHY 지연 범위의 검증을 대체하지 않는다.
+- 최종 버전 2/32프레임 FIFO 구성의 `tests/run_all.ps1` 전체 통과:
+  12개 스크립트, 15개 test top, 종료 코드 0, `ALL_LOCAL_SIMULATIONS_PASS`.
+  로그: `tests/bidirectional_validation.sim/all_tests_packed.log`.
+- 두 전체 구현 모두 진단 CAN을 활성화했다. 데이터 텔레메트리만 별도로
+  끄거나 켜서 검증했으며, 실제 저장된 소스 BD의 데이터 수집은 비활성이다.
+
+  | 데이터 텔레메트리 | WNS | WHS | setup / hold 실패 endpoint |
+  | --- | ---: | ---: | ---: |
+  | 비활성 | +0.210 ns | +0.015 ns | 0 / 0 |
+  | 검증 프로젝트에서만 활성 | +0.285 ns | +0.010 ns | 0 / 0 |
+
+  결과: `tests/design_0_packed.sim/`, `tests/design_1_packed.sim/`.
+  두 구성 모두 RAM 추론 확인, methodology 0건, DRC 오류 0건이다.
+  기존 종류의 DRC 경고와 mailbox/async FIFO의 CDC-15 경고는 남아 있으며
+  bus skew와 제어 동기화 단계 2개의 scoped constraint 확인은 통과했다.
+  외부 I/O 제약의 미완성 범위는 그대로다. 7.5 MHz의 실제 처리 여유와
+  차량 CAN 영향에 대한 보드/실차 측정 결과는 이번 검증에 포함하지 않는다.
+
 ## 2026-11-03 — 반복 검토: 전달 경로 reset 및 실제 로그 FIFO
 
 - 기준 커밋: `f960425`.

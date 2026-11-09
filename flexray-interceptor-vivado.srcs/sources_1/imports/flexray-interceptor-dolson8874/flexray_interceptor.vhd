@@ -23,7 +23,9 @@ entity flexray_interceptor is
     -- send fastserial
     rx_valid  : in std_ulogic; 
     send_log : out std_ulogic_vector(7 downto 0);
-    ready    : out std_ulogic
+    ready    : out std_ulogic;
+    log_stats : out std_ulogic_vector(383 downto 0);
+    spi_byte_done : in std_ulogic := '0'
   );
 end entity flexray_interceptor;
 
@@ -45,7 +47,7 @@ architecture syn of flexray_interceptor is
       i_rst      : in std_ulogic;
       i_ready    : in std_ulogic; -- update msg
       i_busy     : in std_ulogic; -- fastserial_tx busy
-      i_bus      : in std_ulogic; -- from_psmc = '0' , from dadc = '1'
+      i_bus      : in std_ulogic; -- BCM-side = '0', DADC = '1'
       i_msg      : in work.flexray.message; -- flexray message
       o_tx_byte  : out std_ulogic_vector (7 downto 0); -- fastserial_tx data
       o_tx_ready : out std_ulogic; -- fastserial tx ready 
@@ -92,10 +94,37 @@ architecture syn of flexray_interceptor is
   
   signal ready_dadc_rx  : std_ulogic;
   signal msg_dadc_rx    : work.flexray.message;
+  signal ready_bcm_rx   : std_ulogic;
+  signal msg_bcm_rx     : work.flexray.message;
+  -- Preserved debug probes; no new bytes/commands in the SPI stream.
+  signal log_dadc_received, log_bcm_received : std_ulogic_vector(31 downto 0);
+  signal log_dadc_dropped, log_bcm_dropped : std_ulogic_vector(31 downto 0);
+  signal log_dadc_high_water, log_bcm_high_water : std_ulogic_vector(31 downto 0);
+  signal log_dadc_bytes, log_bcm_bytes : std_ulogic_vector(31 downto 0);
+  signal log_spi_bytes : unsigned(31 downto 0) := (others => '0');
+  signal log_spi_clocked_bytes : unsigned(31 downto 0) := (others => '0');
+  signal log_fifo_level, log_fifo_high_water : unsigned(17 downto 0) := (others => '0');
+  signal log_fifo_full_events : unsigned(31 downto 0) := (others => '0');
+  signal previous_fifo_full : std_ulogic := '0';
+  attribute MARK_DEBUG : string;
+  attribute MARK_DEBUG of log_dadc_received, log_bcm_received,
+    log_dadc_dropped, log_bcm_dropped, log_dadc_high_water, log_bcm_high_water,
+    log_dadc_bytes, log_bcm_bytes, log_spi_bytes, log_spi_clocked_bytes,
+    log_fifo_level, log_fifo_high_water, log_fifo_full_events : signal is "TRUE";
   signal ready_dadc_test: std_ulogic := '0';
   signal msg_dadc_test  : work.flexray.message;  
   
 begin
+
+  -- Twelve little-endian 32-bit diagnostic page values, sampled by the CAN
+  -- diagnostics module in this same clock domain. Queue peaks share page 4.
+  log_stats <= std_ulogic_vector(log_spi_clocked_bytes) &
+    std_ulogic_vector(log_spi_bytes) & log_bcm_bytes & log_dadc_bytes &
+    std_ulogic_vector(log_fifo_full_events) &
+    std_ulogic_vector(resize(log_fifo_high_water, 32)) &
+    std_ulogic_vector(resize(log_fifo_level, 32)) &
+    log_bcm_high_water(15 downto 0) & log_dadc_high_water(15 downto 0) &
+    log_bcm_dropped & log_dadc_dropped & log_bcm_received & log_dadc_received;
 
   fifo_inst : entity work.fifo_generator_0
     port map
@@ -118,6 +147,10 @@ begin
      msg => msg_dadc_rx, 
      ready => ready_dadc_rx
      );
+
+  rx_bcm : flexray_rx port map (
+    clk => clk, rst => rst, rx => s_tx_1,
+    msg => msg_bcm_rx, ready => ready_bcm_rx);
      
   tx_log : flexray_log PORT map(
     i_clk => clk, 
@@ -223,10 +256,43 @@ begin
   
   
   log_dispatch : entity work.flexray_log_dispatch port map (
-    clk => clk, rst => rst, frame_valid => ready_dadc, frame => msg_dadc,
-    log_busy => log_busy, log_req => log_req, log_frame => msg_latched,
-    dropped => open);
-  log_bus <= '1';
+    clk => clk, rst => rst, dadc_valid => ready_dadc, dadc_frame => msg_dadc,
+    bcm_valid => ready_bcm_rx, bcm_frame => msg_bcm_rx,
+    log_busy => log_busy, log_req => log_req, log_bus => log_bus, log_frame => msg_latched,
+    dadc_received => log_dadc_received, bcm_received => log_bcm_received,
+    dadc_dropped => log_dadc_dropped, bcm_dropped => log_bcm_dropped,
+    dadc_high_water => log_dadc_high_water, bcm_high_water => log_bcm_high_water,
+    dadc_bytes => log_dadc_bytes, bcm_bytes => log_bcm_bytes);
+
+  -- Saved FIFO depth = 131072 bytes; this excludes the prefetch byte.
+  log_fifo_monitor : process(clk, rst)
+    variable level : unsigned(17 downto 0);
+  begin
+    if rst = '1' then
+      log_fifo_level <= (others => '0'); log_fifo_high_water <= (others => '0');
+      log_fifo_full_events <= (others => '0'); previous_fifo_full <= '0';
+      log_spi_bytes <= (others => '0');
+      log_spi_clocked_bytes <= (others => '0');
+    elsif rising_edge(clk) then
+      level := log_fifo_level;
+      if fifo_wr_en = '1' and fifo_rd_en = '0' then level := level+1;
+      elsif fifo_wr_en = '0' and fifo_rd_en = '1' then level := level-1; end if;
+      log_fifo_level <= level;
+      if level > log_fifo_high_water then log_fifo_high_water <= level; end if;
+      if fifo_full = '1' and previous_fifo_full = '0' and log_fifo_full_events /= x"FFFFFFFF" then
+        log_fifo_full_events <= log_fifo_full_events+1;
+      end if;
+      previous_fifo_full <= fifo_full;
+      -- Valid log bytes accepted by SPI prefetch, not idle zero filler. This
+      -- is not USB delivery confirmation; SPI can hold a byte across CS abort.
+      if fifo_read_state=READ_VALID and rx_valid='1' then
+        log_spi_bytes<=log_spi_bytes+1;
+      end if;
+      if spi_byte_done='1' then
+        log_spi_clocked_bytes<=log_spi_clocked_bytes+1;
+      end if;
+    end if;
+  end process;
   
 
   manage_enables : process (clk, rst)
