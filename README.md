@@ -321,6 +321,17 @@ one coherent statistics snapshot is captured every 80,000,000 clocks (1 second).
 Eight packed pages from that snapshot pass through the existing asynchronous CAN
 queue, with a one-second message expiry, then a fair request arbiter and the
 shared `can_tx`. Backpressure/full queues never stall the FlexRay bridge.
+Each batch also includes one firmware identity record on the same ID/DLC,
+making nine frames per second. Identity bytes are `2F major minor patch`
+followed by a little-endian uint32 build ID. The assigned release is **1.0.0,
+build 1** (`2F 01 00 00 01 00 00 00`). These constants live in
+`flexray_log_can_diagnostics.vhd`; increment the build ID for each distributed
+bitstream/source release. This is a manually assigned identity, not a Git hash
+or automatic detection of local modifications. Format version 2 is independent
+of firmware version 1.0.0. Identity has no snapshot sequence: branch on `2F`
+before assembling the unchanged `20`..`27` statistics pages. Reject `28`..`2E`.
+Hosts should show unknown until received, then last-seen age (stale after 3 s),
+and discard partial statistics/rate baselines when an observed identity changes.
 The CAN clock/bitrate and existing transmitter protocol limitations described
 above are unchanged. No new bitstream has been programmed.
 
@@ -372,7 +383,18 @@ confirm USB/host delivery. These rates are log bytes, not FlexRay bus occupancy.
 Host implementation instructions, including the CAN byte map and tests, are in
 [`docs/sunnypilot-flexray-handoff.txt`](docs/sunnypilot-flexray-handoff.txt).
 Run `./tests/run_log_diagnostics_tests.ps1` for snapshot/CDC/request arbitration
-and end-to-end CAN wire/CRC/stuffing/external-ACK verification. The frontend
+and end-to-end CAN wire/CRC/stuffing/external-ACK verification, including the
+identity record. The firmware-identity extension passed this simulation;
+previous routed timing figures below predate this extension. The latest firmware
+1.0.0/build 1 implementation (frame telemetry off, diagnostics on) passes with
+WNS +1.008 ns and WHS +0.011 ns in `tests/design_0_fw100_b1.sim/`.
+Bitstream and SPIx4/16-MiB BIN/MCS images at address zero are in
+`builds/fw_1.0.0_build1_20261109.sim/`, named `bendbeam_fw_1.0.0_build1.*`.
+`scripts/generate_programming_files.tcl` accepts a routed checkpoint and output
+directory to generate these files after timing/DRC checks. Firmware identity
+reception was confirmed from a recorded CAN trace. The user subsequently reported
+working logging; a new post-fix trace has not been reviewed. External I/O timing
+remains unvalidated. The frontend
 suite checks both directions, zero/maximum payload length, a modeled 50 ns PHY
 echo path (not a measured board delay),
 mixed same-ID frames, statistics, CRC rejection, stalled reads, and warm reset.

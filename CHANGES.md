@@ -1,5 +1,35 @@
 # 수정 기록
 
+## 2026-11-11 — 로깅 동작 보고 및 분석 도구 정리
+
+- 사용자가 현재 로깅이 정상 동작하는 것으로 보인다고 보고했다. 이번 커밋 작업에서
+  수정 후 새 원본 로그나 실물 보드를 직접 재검증한 것은 아니다.
+- CAN 펌웨어 식별 1.0.0/build 1, 진단 시뮬레이션 및 버전명 BIT/BIN/MCS 생성
+  스크립트를 반영한다. ROM은 MT25QL128, SPIx4, 시작 주소 0을 사용한다.
+- 로컬 rlog 분석용 Cap'n Proto/Zstandard 검사기와 CAN 진단 페이지 복원 도구를
+  추가했다. 기존 실패 로그에서 호스트 native 수집 반복 종료, SPI 완료 0,
+  FIFO full을 구분했고 CAN으로 펌웨어 식별 수신을 확인했다.
+- docs/, 원본 차량 로그, 분석 산출물 및 생성된 프로그래밍 파일은 Git에서 제외한다.
+  외부 I/O 타이밍 검증과 수정 후 새 로그의 처리량 측정은 별도 확인 사항이다.
+
+## 2026-11-09 — CAN 펌웨어 식별 추가
+
+- CAN 0x1FA/DLC 8에 식별 레코드 0x2F를 추가했다. byte1..3은 버전
+  1.0.0, byte4..7은 little-endian uint32 build 1이다. 수동 릴리스 번호이며
+  Git 해시가 아니다. 배포 시 HDL 상수를 갱신한다.
+- 기존 진단 포맷 2와 통계 8페이지/48바이트 배치는 유지한다. 매초 통계
+  8개와 식별 1개를 전송 요청한다. 식별에는 snapshot sequence가 없다.
+- 로컬 통합 지시문을 갱신하고 변경분 전용
+  `docs/sunnypilot-firmware-can-delta.txt`를 추가했다. docs/는 Git 제외를 유지한다.
+- `tests/run_log_diagnostics_tests.ps1` 통과: 두 주기의 통계 16개+식별 2개,
+  다른 송신원 2개, CDC/스톨 유지 및 실제 CAN 비트열/CRC/stuffing/외부 ACK 모델 확인.
+  새 HDL 전체 합성/배치/배선도 통과했다: WNS +1.008 ns, WHS +0.011 ns,
+  DRC 오류 0, SPI 동기화기 4단계 및 MISO IOB 유지. 기존 DRC 경고는 남아 있다.
+- `builds/fw_1.0.0_build1_20261109.sim/bendbeam_fw_1.0.0_build1.*`에
+  BIT와 MT25QL128용 SPIx4/16 MiB BIN/MCS를 생성했다. 시작 주소는 0이다.
+  `scripts/generate_programming_files.tcl`로 파일 생성이 가능하다.
+  실물 수신과 외부 I/O 타이밍은 미검증이다. 보드 프로그래밍은 하지 않았다.
+
 ## 2026-11-09 — SPI/FT4232H USB 개선 후속
 
 - SPI RX/TX 시프트 상태를 분리하고 마지막 상승 에지에서 RX 완료를 확정한다.

@@ -4,6 +4,7 @@ use ieee.numeric_std.all;
 
 -- Eight version-2 CAN pages carry a coherent 48-byte statistics snapshot.
 -- Every page carries six bytes of the snapshot. No SPI format change.
+-- An independent 0x2F record carries firmware identity (no snapshot sequence).
 -- Reuse the bounded/expiring async CAN collector with a locally generated
 -- eight-byte record (not a received FlexRay frame or an on-wire FlexRay ID).
 entity flexray_log_can_diagnostics is
@@ -24,10 +25,16 @@ entity flexray_log_can_diagnostics is
 end entity;
 
 architecture rtl of flexray_log_can_diagnostics is
+  -- Release identity: update for every distributed bitstream/source release.
+  -- BUILD_ID is an explicitly assigned release number, not a Git hash.
+  constant FW_MAJOR : natural range 0 to 255 := 1;
+  constant FW_MINOR : natural range 0 to 255 := 0;
+  constant FW_PATCH : natural range 0 to 255 := 0;
+  constant BUILD_ID : std_ulogic_vector(31 downto 0) := x"00000001";
   signal snapshot : std_ulogic_vector(383 downto 0) := (others => '0');
   signal sequence_number : unsigned(7 downto 0) := (others => '1');
   signal timer : natural range 0 to PERIOD_CYCLES-1 := 0;
-  signal page : natural range 0 to 7 := 0;
+  signal page : natural range 0 to 8 := 0;
   signal active, frame_valid : std_ulogic := '0';
   signal frame : work.flexray.message;
 begin
@@ -50,14 +57,24 @@ begin
           active <= '1'; page <= 0;
         else timer <= timer+1; end if;
         if active = '1' and frame_valid = '0' then
-          value := snapshot(page*48+47 downto page*48);
-          frame.data(0) <= std_logic_vector(to_unsigned(16#20#+page, 8));
-          frame.data(1) <= std_logic_vector(sequence_number);
-          for byte_index in 0 to 5 loop
-            frame.data(2+byte_index) <= std_logic_vector(value(byte_index*8+7 downto byte_index*8));
-          end loop;
+          if page = 8 then
+            frame.data(0) <= x"2F";
+            frame.data(1) <= std_logic_vector(to_unsigned(FW_MAJOR, 8));
+            frame.data(2) <= std_logic_vector(to_unsigned(FW_MINOR, 8));
+            frame.data(3) <= std_logic_vector(to_unsigned(FW_PATCH, 8));
+            for byte_index in 0 to 3 loop
+              frame.data(4+byte_index) <= std_logic_vector(BUILD_ID(byte_index*8+7 downto byte_index*8));
+            end loop;
+          else
+            value := snapshot(page*48+47 downto page*48);
+            frame.data(0) <= std_logic_vector(to_unsigned(16#20#+page, 8));
+            frame.data(1) <= std_logic_vector(sequence_number);
+            for byte_index in 0 to 5 loop
+              frame.data(2+byte_index) <= std_logic_vector(value(byte_index*8+7 downto byte_index*8));
+            end loop;
+          end if;
           frame_valid <= '1';
-          if page = 7 then active <= '0'; else page <= page+1; end if;
+          if page = 8 then active <= '0'; else page <= page+1; end if;
         end if;
       end if;
     end if;

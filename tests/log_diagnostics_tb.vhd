@@ -65,7 +65,11 @@ begin
         if valid='1' and ready='1' then
           expected.id<=data(78 downto 68); expected.len<=data(67 downto 64); expected.dat<=data(63 downto 0);
           if unsigned(data(78 downto 68))=16#1FA# then
-            p:=diagnostic_frames mod 8; seq:=diagnostic_frames/8;
+            p:=diagnostic_frames mod 9; seq:=diagnostic_frames/9;
+            if p=8 then
+              assert data(67 downto 64)="1000" and data(63 downto 0)=x"2F01000001000000"
+                report "Firmware identity ID/DLC/version/build byte order mismatch" severity failure;
+            else
             assert data(67 downto 64)="1000" and unsigned(data(63 downto 56))=16#20#+p and
               unsigned(data(55 downto 48))=seq report "Diagnostic ID/DLC/page/sequence mismatch" severity failure;
             for b in 0 to 5 loop
@@ -75,6 +79,7 @@ begin
               assert unsigned(data(47-b*8 downto 40-b*8))=reference_value(byte_index*8+7 downto byte_index*8)
                 report "Diagnostic snapshot mixed capture times or byte order" severity failure;
             end loop;
+            end if;
             diagnostic_frames<=diagnostic_frames+1;
           else
             assert data=a_data report "Other CAN source corrupted" severity failure;
@@ -111,9 +116,9 @@ begin
       loop wait until rising_edge(dst_clk); exit when a_ready='1'; end loop;
     end loop;
     a_valid<='0';
-    wait until wire_frames=18; wait for 20 us;
-    assert diagnostic_frames=16 and other_frames=2 and unsigned(drops)=0 and unsigned(stale)=0 severity failure;
-    report "TEST_PASS diagnostic_coherent_pages_mux_and_can_wire";
+    wait until wire_frames=20; wait for 20 us;
+    assert diagnostic_frames=18 and other_frames=2 and unsigned(drops)=0 and unsigned(stale)=0 severity failure;
+    report "TEST_PASS diagnostic_coherent_pages_firmware_identity_mux_and_can_wire";
     rst<='1'; wait for 2 us;
     assert valid='0' and diag_valid='0' severity failure;
     report "TEST_SUMMARY log_diagnostics failures=0"; finish;
