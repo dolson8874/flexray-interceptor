@@ -16,6 +16,13 @@ def sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def read_log(path):
+    data = path.read_bytes()
+    # Windows PowerShell 5 redirects native output as UTF-16LE with a BOM.
+    encoding = 'utf-16' if data.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig'
+    return data.decode(encoding, errors='replace')
+
+
 def bit_payload(path):
     data = path.read_bytes()
     magic_length = int.from_bytes(data[:2], 'big')
@@ -98,11 +105,11 @@ def main():
     name = f'bendbeam_fw_{version_text}_build{build_id}'
     paths = [output / f'{name}.{suffix}' for suffix in ('bit', 'bin', 'mcs')]
     image_validation = verify_images(*paths)
-    verification = args.verify_log.read_text(encoding='utf-8', errors='replace')
+    verification = read_log(args.verify_log)
     match = re.search(r'VERIFY_RESULT telemetry=false diagnostics=true CAN_ID=0x1FA WNS=([\d.-]+) WHS=([\d.-]+)', verification)
     if match is None or min(map(float, match.groups())) < 0 or 'SPI_CDC_RESULT stages=4' not in verification:
         raise ValueError('Missing successful release timing/CDC verification')
-    if 'PROGRAMMING_FILES_PASS' not in args.program_log.read_text(encoding='utf-8', errors='replace'):
+    if 'PROGRAMMING_FILES_PASS' not in read_log(args.program_log):
         raise ValueError('Programming file generation did not complete')
 
     def git(*arguments):
