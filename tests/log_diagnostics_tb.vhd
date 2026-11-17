@@ -67,7 +67,7 @@ begin
           if unsigned(data(78 downto 68))=16#1FA# then
             p:=diagnostic_frames mod 9; seq:=diagnostic_frames/9;
             if p=8 then
-              assert data(67 downto 64)="1000" and data(63 downto 0)=x"2F01000001000000"
+              assert data(67 downto 64)="1000" and data(63 downto 0)=x"2F01010002000000"
                 report "Firmware identity ID/DLC/version/build byte order mismatch" severity failure;
             else
             assert data(67 downto 64)="1000" and unsigned(data(63 downto 56))=16#20#+p and

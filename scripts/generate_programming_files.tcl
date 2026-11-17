@@ -1,9 +1,13 @@
 # Local file generation only; never opens a hardware target.
-# argv: routed checkpoint, output directory.
+# argv: routed checkpoint, output directory, explicit release basename.
 if {[catch {
-  if {[llength $argv] != 2} { error "Expected routed checkpoint and output directory" }
+  if {[llength $argv] != 3} { error "Expected routed checkpoint, output directory and release basename" }
   set checkpoint [file normalize [lindex $argv 0]]
   set output [file normalize [lindex $argv 1]]
+  set release_name [lindex $argv 2]
+  if {![regexp {^bendbeam_fw_[0-9]+\.[0-9]+\.[0-9]+_build[0-9]+$} $release_name]} {
+    error "Invalid release basename; expected bendbeam_fw_X.Y.Z_buildN"
+  }
   file mkdir $output
   set_param general.maxThreads 4
   open_checkpoint $checkpoint
@@ -13,7 +17,7 @@ if {[catch {
   if {[get_property SLACK $setup] < 0 || [get_property SLACK $hold] < 0} {
     error "Setup/hold timing not met"
   }
-  set base [file join $output bendbeam_fw_1.0.0_build1]
+  set base [file join $output $release_name]
   report_drc -file [file join $output pre_bitstream_drc.rpt]
   if {[llength [get_drc_violations -quiet -filter {SEVERITY == Error}]]} {
     error "DRC errors prevent bitstream generation"

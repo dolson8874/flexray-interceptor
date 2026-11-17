@@ -344,9 +344,24 @@ echo. Offline host tests (supply a local clone containing the pinned base):
 python tests/test_source5_host.py --host-repo PATH_TO_SUNNYPILOT
 ```
 
-This source change does not program hardware or establish the currently loaded
-bitstream. A new distributed firmware release must receive a new release identity;
-the historical `1.0.0/build1` identity alone does not establish source 5 support.
+The source5 release identity is **1.1.0 / build 2**, with CAN identity record
+`2F 01 01 00 02 00 00 00`. The release configuration keeps frame telemetry off
+and logging diagnostics on. Output images are named `bendbeam_fw_1.1.0_build2.*`;
+the generated package includes the source commit, checksums and build metadata.
+The historical `1.0.0/build1` identity does not establish source5 support.
+Generating these files does not program hardware or establish the currently
+loaded bitstream. Host source5 support must be implemented separately as agreed.
+
+After a successful release implementation, generate and validate the package:
+
+```powershell
+& C:/Xilinx/Vivado/2024.2/bin/vivado.bat -mode batch -nojournal -nolog -source scripts/generate_programming_files.tcl -tclargs tests/design_0_fw110_b2.sim/routed.dcp builds/fw_1.1.0_build2_20261117.sim bendbeam_fw_1.1.0_build2
+python scripts/package_firmware.py --output builds/fw_1.1.0_build2_20261117.sim --verify-log tests/fw110_build_verify.log --program-log tests/fw110_programming_files.log
+```
+
+Capture the programming-file command output in the specified program log. The
+packager checks the MCS record checksums, MCS/BIN equality, BIT payload/BIN
+relationship, source hashes and ZIP contents; it never uploads or programs files.
 
 ## Bidirectional logging and diagnostic CAN (2026-11-09 baseline)
 
@@ -443,8 +458,10 @@ previous routed timing figures below predate this extension. The latest firmware
 WNS +1.008 ns and WHS +0.011 ns in `tests/design_0_fw100_b1.sim/`.
 Bitstream and SPIx4/16-MiB BIN/MCS images at address zero are in
 `builds/fw_1.0.0_build1_20261109.sim/`, named `bendbeam_fw_1.0.0_build1.*`.
-`scripts/generate_programming_files.tcl` accepts a routed checkpoint and output
-directory to generate these files after timing/DRC checks. Firmware identity
+`scripts/generate_programming_files.tcl` now requires a routed checkpoint, output
+directory and explicit release basename (for example `bendbeam_fw_1.1.0_build2`)
+to generate BIT/BIN/MCS after timing/DRC checks. The explicit label must match the
+identity in the source used to build that checkpoint. Firmware identity
 reception was confirmed from a recorded CAN trace. The user subsequently reported
 working logging; a new post-fix trace has not been reviewed. External I/O timing
 remains unvalidated. The frontend
