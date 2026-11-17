@@ -13,12 +13,23 @@ package flexray is
     data           : data_t;
     crc            : std_ulogic_vector(23 downto 0);
   end record message;
+  constant EMPTY_MESSAGE : message := (
+    flags => (others => '0'), frame_id => (others => '0'),
+    payload_length => (others => '0'), header_crc => (others => '0'),
+    cycle_count => (others => '0'), data => (others => (others => '0')),
+    crc => (others => '0'));
+  -- Capture candidates regardless of enable, cycle, or actual payload change.
+  function original_log_candidate(id : std_ulogic_vector(10 downto 0)) return boolean;
   -- Equivalent to cycle mod 12 = phase for phase 0/1. Decode the six-bit
   -- domain directly instead of placing an integer remainder in the bit path.
   function cycle_phase_12(c : std_ulogic_vector(5 downto 0); phase : natural) return boolean;
 end package flexray;
 
 package body flexray is
+  function original_log_candidate(id : std_ulogic_vector(10 downto 0)) return boolean is
+  begin
+    return id = b"00000011111" or id = b"00000110001" or id = b"00000001101";
+  end function;
   function cycle_phase_12(c : std_ulogic_vector(5 downto 0); phase : natural) return boolean is
   begin
     case c(5 downto 2) is

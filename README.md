@@ -295,7 +295,60 @@ flushes the prefetch and drives both forwarding outputs and enables to idle high
 The frontend suite generates the actual FIFO simulation model from the saved XCI
 and checks reset, stalled consumption, and exact log frames including final CRC.
 
-## Bidirectional logging and diagnostic CAN (2026-11-09)
+## Selected DADC original logging (2026-11-17)
+
+The logger now retains DADC originals for frame IDs `0x1F`, `0x31`, and `0x0D`,
+in every cycle and independently of steering enable, HUD state, or whether the
+payload actually changes. `TEST_LCA` remains false. These are modification
+candidates; presence on source 5 does not prove that interception changed a byte.
+
+| SPI marker | Wire bus | Host source | Observation |
+| --- | --- | --- | --- |
+| `CA 80` | 0 | 4 | Existing BCM-side to DADC forwarding output, all valid frames |
+| `CA 90` | 1 | 5 | DADC input before override selection, selected IDs only |
+| `CA A0` | 2 | 6 | Existing DADC to BCM-side forwarding output, all valid frames |
+
+The original decoder uses the existing forwarding echo guard before the override
+selection. It has no control over the forwarding path. Three independent
+32-frame LUTRAM queues arbitrate round-robin; full queues drop new records and
+never stall FlexRay. Each source retains its own order, without a global order
+or guaranteed adjacency/pairing of source 5 and 6. Original flags, header, cycle,
+payload and CRC are preserved. Only complete CRC-valid frames are logged.
+The record length remains payload bytes + 12, and the socket/rlog body is unchanged.
+No public frame sequence or timestamp has been introduced. Repeated cycles and
+missing records can make an automatic pre/post match ambiguous.
+
+The existing 48-byte CAN diagnostic snapshot is unchanged. Its DADC/BCM receive,
+drop, peak and demand fields still describe sources 6/4; shared FIFO/SPI counters
+include source 5 traffic. Original receive/drop/peak/byte counters are retained as
+`MARK_DEBUG` signals inside `flexray_interceptor`, **not exported on CAN/SPI**.
+Missing source 5 data is therefore not evidence that no modification occurred.
+Additional load is the selected input frames' payload bytes + 12 per frame;
+actual USB capacity and physical PHY timing require board measurements.
+
+Host support is required: older parsers reject `CA 90`. The tested host patch
+`host-patches/source5-native.patch` targets sunnypilot WIP base
+`97efb304e81f60fe8f9b8c23da5579807d8f2ca3`, retains the `src=4+bus` mapping,
+and keeps originals separate from BCM native statistics. It records through the
+existing `flexray` analysis/logging service, never a physical CAN transmitter.
+The existing cruise observer still selects source 6; originals are not
+automatically injected into observer results or vehicle control. See
+`host-patches/README.txt` for application and test scope.
+
+`tests/run_frontend_tests.ps1` now includes three-source overflow/reset/fairness
+and end-to-end original/output tests using the actual FIFO IP and production
+LKAS/HUD modifier, including all cycles, CRC rejection, maximum length and PHY
+echo. Offline host tests (supply a local clone containing the pinned base):
+
+```powershell
+python tests/test_source5_host.py --host-repo PATH_TO_SUNNYPILOT
+```
+
+This source change does not program hardware or establish the currently loaded
+bitstream. A new distributed firmware release must receive a new release identity;
+the historical `1.0.0/build1` identity alone does not establish source 5 support.
+
+## Bidirectional logging and diagnostic CAN (2026-11-09 baseline)
 
 Both forwarding outputs are decoded for logging: `s_tx_0` is DADC to the BCM
 side (after interception), and `s_tx_1` is the BCM side to DADC. The BCM-side

@@ -20,7 +20,9 @@ begin
     dadc_received => dadc_count, bcm_received => bcm_count,
     dadc_dropped => dadc_drops, bcm_dropped => bcm_drops,
     dadc_high_water => dadc_peak, bcm_high_water => bcm_peak,
-    dadc_bytes=>dadc_bytes,bcm_bytes=>bcm_bytes);
+    dadc_bytes=>dadc_bytes,bcm_bytes=>bcm_bytes,
+    log_original=>open, original_received=>open, original_dropped=>open,
+    original_high_water=>open, original_bytes=>open);
   process begin wait for 100 us; report "TEST_TIMEOUT log_dispatch" severity failure; end process;
   process
     procedure step is begin wait until falling_edge(clk); end procedure;

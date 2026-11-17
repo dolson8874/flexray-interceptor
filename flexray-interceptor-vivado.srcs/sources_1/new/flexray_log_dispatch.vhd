@@ -3,7 +3,7 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 -- Independent complete-frame queues; the bridge never waits for the logger.
--- Index 0 = BCM-side input, index 1 = DADC input. Only queued heads arbitrate.
+-- Index 0 = BCM-side output, 1 = DADC output, 2 = selected DADC original.
 entity flexray_log_dispatch is
   generic (QUEUE_DEPTH : positive range 1 to 64 := 32);
   port (
@@ -13,7 +13,11 @@ entity flexray_log_dispatch is
     log_frame : out work.flexray.message;
     dadc_received, bcm_received, dadc_dropped, bcm_dropped : out std_ulogic_vector(31 downto 0);
     dadc_high_water, bcm_high_water : out std_ulogic_vector(31 downto 0);
-    dadc_bytes, bcm_bytes : out std_ulogic_vector(31 downto 0)
+    dadc_bytes, bcm_bytes : out std_ulogic_vector(31 downto 0);
+    original_valid : in std_ulogic := '0';
+    original_frame : in work.flexray.message := work.flexray.EMPTY_MESSAGE;
+    log_original : out std_ulogic;
+    original_received, original_dropped, original_high_water, original_bytes : out std_ulogic_vector(31 downto 0)
   );
 end entity;
 architecture rtl of flexray_log_dispatch is
@@ -22,19 +26,19 @@ architecture rtl of flexray_log_dispatch is
   -- flip-flop and input mux for every bit of every frame slot.
   subtype packed_frame_t is std_ulogic_vector(2103 downto 0);
   type frame_queue_t is array (0 to QUEUE_DEPTH-1) of packed_frame_t;
-  type pointers_t is array (0 to 1) of natural range 0 to QUEUE_DEPTH-1;
-  type counts_t is array (0 to 1) of natural range 0 to QUEUE_DEPTH;
-  type counters_t is array (0 to 1) of unsigned(31 downto 0);
-  signal dadc_queue, bcm_queue : frame_queue_t;
+  type pointers_t is array (0 to 2) of natural range 0 to QUEUE_DEPTH-1;
+  type counts_t is array (0 to 2) of natural range 0 to QUEUE_DEPTH;
+  type counters_t is array (0 to 2) of unsigned(31 downto 0);
+  signal dadc_queue, bcm_queue, original_queue : frame_queue_t;
   attribute RAM_STYLE : string;
-  attribute RAM_STYLE of dadc_queue, bcm_queue : signal is "distributed";
+  attribute RAM_STYLE of dadc_queue, bcm_queue, original_queue : signal is "distributed";
   signal heads, tails : pointers_t := (others => 0);
   signal counts, peaks : counts_t := (others => 0);
   signal received, dropped : counters_t := (others => (others => '0'));
   signal wire_bytes : counters_t := (others => (others => '0'));
-  signal previous_valid : std_ulogic_vector(1 downto 0) := (others => '0');
+  signal previous_valid : std_ulogic_vector(2 downto 0) := (others => '0');
   signal request : std_ulogic := '0';
-  signal preferred : natural range 0 to 1 := 1;
+  signal preferred : natural range 0 to 2 := 1;
   function advance(p : natural) return natural is
   begin
     if p = QUEUE_DEPTH-1 then return 0; else return p+1; end if;
@@ -78,13 +82,17 @@ begin
   bcm_bytes <= std_ulogic_vector(wire_bytes(0));
   dadc_high_water <= std_ulogic_vector(to_unsigned(peaks(1), 32));
   bcm_high_water <= std_ulogic_vector(to_unsigned(peaks(0), 32));
+  original_received <= std_ulogic_vector(received(2));
+  original_dropped <= std_ulogic_vector(dropped(2));
+  original_high_water <= std_ulogic_vector(to_unsigned(peaks(2), 32));
+  original_bytes <= std_ulogic_vector(wire_bytes(2));
   process(clk, rst)
     variable used : counts_t;
-    variable arrivals : std_ulogic_vector(1 downto 0);
-    variable selected : natural range 0 to 1;
+    variable arrivals : std_ulogic_vector(2 downto 0);
+    variable selected : natural range 0 to 2;
   begin
     if rst = '1' then
-      request <= '0'; log_bus <= '1'; preferred <= 1;
+      request <= '0'; log_bus <= '1'; log_original <= '0'; preferred <= 1;
       heads <= (others => 0); tails <= (others => 0);
       counts <= (others => 0); peaks <= (others => 0);
       received <= (others => (others => '0'));
@@ -94,31 +102,40 @@ begin
       -- Counts/request qualify all data; payload storage needs no reset.
     elsif rising_edge(clk) then
       used := counts;
-      arrivals := (dadc_valid & bcm_valid) and not previous_valid;
-      previous_valid <= dadc_valid & bcm_valid;
+      arrivals := (original_valid & dadc_valid & bcm_valid) and not previous_valid;
+      previous_valid <= original_valid & dadc_valid & bcm_valid;
       if request = '1' and log_busy = '1' then request <= '0'; end if;
       if request = '0' and log_busy = '0' then
         selected := preferred;
-        if used(selected) = 0 then selected := 1-selected; end if;
+        for attempt in 0 to 1 loop
+          exit when used(selected) /= 0;
+          if selected = 2 then selected := 0; else selected := selected+1; end if;
+        end loop;
         if used(selected) /= 0 then
-          if selected = 1 then
+          log_original <= '0';
+          if selected = 2 then
+            log_frame <= unpack(original_queue(heads(2))); log_bus <= '0'; log_original <= '1';
+          elsif selected = 1 then
             log_frame <= unpack(dadc_queue(heads(1))); log_bus <= '1';
           else
             log_frame <= unpack(bcm_queue(heads(0))); log_bus <= '0';
           end if;
-          request <= '1'; preferred <= 1-selected;
+          request <= '1';
+          if selected = 2 then preferred <= 0; else preferred <= selected+1; end if;
           heads(selected) <= advance(heads(selected));
           used(selected) := used(selected)-1;
         end if;
       end if;
       -- Pop before push permits replacement of a full queue's consumed head.
-      for source in 0 to 1 loop
+      for source in 0 to 2 loop
         if arrivals(source) = '1' then
           received(source) <= increment(received(source));
-          if source=1 then wire_bytes(source)<=add_bytes(wire_bytes(source),dadc_frame);
+          if source=2 then wire_bytes(source)<=add_bytes(wire_bytes(source),original_frame);
+          elsif source=1 then wire_bytes(source)<=add_bytes(wire_bytes(source),dadc_frame);
           else wire_bytes(source)<=add_bytes(wire_bytes(source),bcm_frame);end if;
           if used(source) < QUEUE_DEPTH then
-            if source = 1 then dadc_queue(tails(1)) <= pack(dadc_frame);
+            if source = 2 then original_queue(tails(2)) <= pack(original_frame);
+            elsif source = 1 then dadc_queue(tails(1)) <= pack(dadc_frame);
             else bcm_queue(tails(0)) <= pack(bcm_frame); end if;
             tails(source) <= advance(tails(source));
             used(source) := used(source)+1;

@@ -1,0 +1,226 @@
+diff --git a/openpilot/system/flexray_logd/flexray_capture.c b/openpilot/system/flexray_logd/flexray_capture.c
+index bfaa906..16e7f97 100644
+--- a/openpilot/system/flexray_logd/flexray_capture.c
++++ b/openpilot/system/flexray_logd/flexray_capture.c
+@@ -35,6 +35,7 @@ static void report_stats(uint64_t bulk_bytes, uint64_t reads, const struct flexr
+   if (file_out->started) flexray_journal_status(file_out->journal, &metadata_lost, &metadata_error);
+   fprintf(stderr, "flexray_stats: {\"bulk_bytes\":%llu,\"bulk_reads\":%llu,"
+     "\"dadc_frames\":%llu,\"dadc_wire_bytes\":%llu,\"bcm_frames\":%llu,\"bcm_wire_bytes\":%llu,"
++    "\"dadc_original_frames\":%llu,\"dadc_original_wire_bytes\":%llu,"
+     "\"padding_bytes\":%llu,\"noise_bytes\":%llu,\"header_crc_errors\":%llu,"
+     "\"frame_crc_errors\":%llu,\"metadata_errors\":%llu,\"resyncs\":%llu,\"pending_bytes\":%zu,"
+     "\"socket_sent_bytes\":%llu,\"socket_errno\":%d,\"socket_drop_bytes\":%llu,\"socket_drop_batches\":%llu,\"socket_reset_bytes\":%llu,"
+@@ -43,6 +44,7 @@ static void report_stats(uint64_t bulk_bytes, uint64_t reads, const struct flexr
+     (unsigned long long)bulk_bytes, (unsigned long long)reads,
+     (unsigned long long)s->direction_frames[1], (unsigned long long)s->direction_wire_bytes[1],
+     (unsigned long long)s->direction_frames[0], (unsigned long long)s->direction_wire_bytes[0],
++    (unsigned long long)s->original_frames, (unsigned long long)s->original_wire_bytes,
+     (unsigned long long)s->padding_bytes, (unsigned long long)s->noise_bytes,
+     (unsigned long long)s->header_crc_errors, (unsigned long long)s->payload_crc_errors,
+     (unsigned long long)s->metadata_errors, (unsigned long long)s->resyncs, pending,
+diff --git a/openpilot/system/flexray_logd/flexray_decoder.c b/openpilot/system/flexray_logd/flexray_decoder.c
+index 80d89b8..1550680 100644
+--- a/openpilot/system/flexray_logd/flexray_decoder.c
++++ b/openpilot/system/flexray_logd/flexray_decoder.c
+@@ -126,7 +126,7 @@ size_t decode_flexray_buffer_stats(char *data, size_t *psize, char *out, size_t
+
+   while (pos < size) {
+     const uint8_t *wire = (const uint8_t *)data + pos;
+-    if (wire[0] != 0xCA || (size - pos >= 2 && wire[1] != 0xA0 && wire[1] != 0x80)) {
++    if (wire[0] != 0xCA || (size - pos >= 2 && wire[1] != 0xA0 && wire[1] != 0x80 && wire[1] != 0x90)) {
+       if (stats) {
+         if (wire[0] == 0) stats->padding_bytes++;
+         else { stats->noise_bytes++; stats->recovering = true; }
+@@ -302,10 +302,15 @@ size_t decode_flexray_buffer_stats(char *data, size_t *psize, char *out, size_t
+     encoded[5] = header[3] >> 1;
+     memcpy(encoded + 6, body, data_len);
+     if (stats) {
+-      unsigned direction = header[0] == 0xA0;
+       stats->frames++;
+-      stats->direction_frames[direction]++;
+-      stats->direction_wire_bytes[direction] += 7 + data_len;
++      if (header[0] == 0x90) {
++        stats->original_frames++;
++        stats->original_wire_bytes += 7 + data_len;
++      } else {
++        unsigned direction = header[0] == 0xA0;
++        stats->direction_frames[direction]++;
++        stats->direction_wire_bytes[direction] += 7 + data_len;
++      }
+       if (stats->recovering) stats->resyncs++;
+       stats->recovering = false;
+     }
+diff --git a/openpilot/system/flexray_logd/flexray_decoder.h b/openpilot/system/flexray_logd/flexray_decoder.h
+index 3443281..5d1f51c 100644
+--- a/openpilot/system/flexray_logd/flexray_decoder.h
++++ b/openpilot/system/flexray_logd/flexray_decoder.h
+@@ -47,6 +47,8 @@ struct flexray_decode_stats {
+   uint64_t frames, noise_bytes, padding_bytes, header_crc_errors, payload_crc_errors, metadata_errors;
+   // Index 0: wire bus 0 (BCM-side -> DADC), index 1: wire bus 2 (DADC -> BCM).
+   uint64_t direction_frames[2], direction_wire_bytes[2], resyncs;
++  // Selected DADC originals (wire bus 1 / source5), never BCM-side traffic.
++  uint64_t original_frames, original_wire_bytes;
+   bool recovering;
+ };
+
+diff --git a/openpilot/system/flexray_logd/flexrayd.py b/openpilot/system/flexray_logd/flexrayd.py
+index daa76e7..bd561e1 100644
+--- a/openpilot/system/flexray_logd/flexrayd.py
++++ b/openpilot/system/flexray_logd/flexrayd.py
+@@ -26,6 +26,8 @@ from openpilot.system.flexray_logd.usb_inventory import start_usb_inventory
+
+ # Match PANDA_BUS_OFFSET: pandad currently owns one Panda (sources 0–3).
+ FLEXRAY_SOURCE_OFFSET = 4
++# Wire bus0/1/2: BCM output / selected DADC original / DADC output.
++# Source5 is a logging-only candidate set, not proof of a changed payload.
+ MAX_READ = 0x4000
+ CAPTURE_BINARY = Path(BASEDIR) / "openpilot/system/flexray_logd/flexray_logd"
+
+diff --git a/openpilot/system/flexray_logd/startup.py b/openpilot/system/flexray_logd/startup.py
+index 06fcd86..b390630 100644
+--- a/openpilot/system/flexray_logd/startup.py
++++ b/openpilot/system/flexray_logd/startup.py
+@@ -36,7 +36,7 @@ class LoggerStartup:
+     message.valid = True
+     message.can = frames
+     data = message.to_bytes()
+-    counts = {src: sum(f['src'] == src for f in frames) for src in (4, 6)}
++    counts = {src: sum(f['src'] == src for f in frames) for src in (4, 5, 6)}
+     received_at = self.clock()
+     self.telemetry.ingested_counts(counts)
+     if self.ready and not self.queue and self._send(data, counts, received_at):
+diff --git a/openpilot/system/flexray_logd/status.py b/openpilot/system/flexray_logd/status.py
+index 96b767b..ba66909 100644
+--- a/openpilot/system/flexray_logd/status.py
++++ b/openpilot/system/flexray_logd/status.py
+@@ -21,9 +21,11 @@ class CaptureStatus:
+     self.usb_bytes = 0
+     self.logger = {'loggerReady': True, 'startupBufferedFrames': 0, 'startupBufferedBytes': 0,
+                    'startupDroppedFrames': 0, 'startupDroppedBytes': 0}
+-    self.counts = {4: 0, 6: 0}
+-    self.arrival_counts = {4: 0, 6: 0}
+-    self.rates = {4: 0.0, 6: 0.0}
++    # Source5 contributes to capture freshness, but never to src4/src6 counters.
++    # Its separate totals are available in native flexray_stats (no schema change).
++    self.counts = {4: 0, 5: 0, 6: 0}
++    self.arrival_counts = {4: 0, 5: 0, 6: 0}
++    self.rates = {4: 0.0, 5: 0.0, 6: 0.0}
+     self.previous_counts = dict(self.arrival_counts)
+     self.sample_at = self.clock()
+     self.published_at = None
+@@ -35,7 +37,7 @@ class CaptureStatus:
+     self.usb_bytes = 0
+     self.last_error = ''
+     self.last_native_error = ''
+-    self.rates = {4: 0.0, 6: 0.0}
++    self.rates = {src: 0.0 for src in self.counts}
+     self.previous_counts = dict(self.arrival_counts)
+     self.sample_at = self.clock()
+     self.publish(force=True)
+@@ -77,7 +79,7 @@ class CaptureStatus:
+     self.phase = 'retrying'
+     self.retry_count += 1
+     self.last_error = self.last_error or str(error)
+-    self.rates = {4: 0.0, 6: 0.0}
++    self.rates = {src: 0.0 for src in self.counts}
+     self.publish(force=True)
+
+   def snapshot(self, now=None):
+diff --git a/openpilot/system/flexray_logd/tests/test_decoder.c b/openpilot/system/flexray_logd/tests/test_decoder.c
+index 77cb42d..84fe5a1 100644
+--- a/openpilot/system/flexray_logd/tests/test_decoder.c
++++ b/openpilot/system/flexray_logd/tests/test_decoder.c
+@@ -50,12 +50,12 @@ static void frame_crc(char *frame, size_t size) {
+
+ static void test_bidirectional(void) {
+   char frame[266], input[2048], output[2048];
+-  for (unsigned bus = 0; bus <= 2; bus += 2) {
++  for (unsigned bus = 0; bus <= 2; ++bus) {
+     for (unsigned words = 0; words <= 127; ++words) {
+       size_t size = make_frame(frame, 0x47f, 31, 63, words);
+       frame[1] = 0x80 | (bus << 4);
+-      if (words >= 2) {
+-        memcpy(frame + 9, "\xca\xa0\xca\x80", 4);
++      if (words >= 3) {
++        memcpy(frame + 9, "\xca\xa0\xca\x80\xca\x90", 6);
+         frame_crc(frame, size);
+       }
+       for (size_t split = 0; split <= size; ++split) {
+@@ -71,8 +71,14 @@ static void test_bidirectional(void) {
+         }
+         assert(n == size - 1 && pending == 0);
+         check_output(output, frame, 0x47f, size);
+-        assert(stats.direction_frames[bus == 2] == 1);
+-        assert(stats.direction_wire_bytes[bus == 2] == size);
++        if (bus == 1) {
++          assert(stats.original_frames == 1 && stats.original_wire_bytes == size);
++          assert(stats.direction_frames[0] == 0 && stats.direction_frames[1] == 0);
++        } else {
++          assert(stats.direction_frames[bus == 2] == 1);
++          assert(stats.direction_wire_bytes[bus == 2] == size);
++          assert(stats.original_frames == 0 && stats.original_wire_bytes == 0);
++        }
+         assert(stats.resyncs == 0 && stats.noise_bytes == 0 && stats.padding_bytes == 0);
+       }
+     }
+@@ -83,7 +89,7 @@ static void test_bidirectional(void) {
+     input[1] = marker;
+     size_t pending = size;
+     size_t n = decode_flexray_buffer(input, &pending, output, sizeof(output));
+-    assert(n == ((marker == 0x80 || marker == 0xa0) ? size - 1 : 0));
++    assert(n == ((marker == 0x80 || marker == 0x90 || marker == 0xa0) ? size - 1 : 0));
+   }
+   // The same ID on both directions stays separate, with zero padding excluded.
+   memset(input, 0, 3);
+@@ -135,7 +141,7 @@ static void test_bidirectional(void) {
+   input[0] = 0; input[1] = 0xca; pending = 2;
+   assert(decode_flexray_buffer_stats(input, &pending, output, 0, &stats) == 0);
+   assert(pending == 1 && (uint8_t)input[0] == 0xca && stats.padding_bytes == 1);
+-  puts("decoder: both markers, all word lengths/splits, embedded markers, padding, damage recovery OK");
++  puts("decoder: three markers, all word lengths/splits, embedded markers, padding, damage recovery OK");
+ }
+
+ int main(void) {
+diff --git a/openpilot/system/flexray_logd/tests/test_flexrayd.py b/openpilot/system/flexray_logd/tests/test_flexrayd.py
+index a086347..eb5b04a 100644
+--- a/openpilot/system/flexray_logd/tests/test_flexrayd.py
++++ b/openpilot/system/flexray_logd/tests/test_flexrayd.py
+@@ -27,6 +27,17 @@ def envelope(frame_id=0x47F, flags=3, cycle=7, payload=b'\x12\x34', crc=0x123456
+   return b'\x04' + (frame_id << 3).to_bytes(4, 'little') + bytes([len(payload) // 2, flags, cycle]) + payload + crc.to_bytes(3, 'big')
+
+
++def test_source5_envelope_all_split_positions():
++  data = bytearray(envelope(frame_id=0x1f))
++  data[0] = 2  # wire bus1 -> host source5
++  for split in range(len(data)):
++    pending = bytearray(data[:split])
++    assert unpack_frames(pending) == []
++    pending.extend(data[split:])
++    frames = unpack_frames(pending)
++    assert not pending and frames == [{'address': 0x1f, 'src': 5, 'dat': bytes(data[6:])}]
++
++
+ def test_default_and_toggle_conditions(tmp_path):
+   params = Params(str(tmp_path))
+   assert params.get_default_value('FlexrayLoggingEnabled') is True
+diff --git a/openpilot/system/flexray_logd/tests/test_status.py b/openpilot/system/flexray_logd/tests/test_status.py
+index 708ce39..451bdd1 100644
+--- a/openpilot/system/flexray_logd/tests/test_status.py
++++ b/openpilot/system/flexray_logd/tests/test_status.py
+@@ -21,6 +21,16 @@ def reader(status):
+   return message.flexrayStatus
+
+
++def test_source5_freshness_does_not_inflate_bcm_or_output_counts():
++  status, now, sent = tracker()
++  status.starting(123)
++  status.received([{'src': 5}])
++  result = reader(status)
++  assert display_state(result, now[0], received_at=now[0]) == 'receiving'
++  assert result.src4Frames == 0 and result.src6Frames == 0
++  assert status.counts[5] == 1 and status.arrival_counts[5] == 1
++
++
+ def test_only_valid_frames_mean_receiving():
+   status, now, sent = tracker()
+   status.starting(123)

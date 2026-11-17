@@ -34,7 +34,8 @@ entity flexray_log is
     i_msg      : in work.flexray.message; -- flexray message
     o_tx_byte  : out std_ulogic_vector (7 downto 0); -- fastserial_tx data
     o_tx_ready : out std_ulogic; -- fastserial tx ready 
-    o_busy     : out std_ulogic); -- in_writing msg this module
+    o_busy     : out std_ulogic; -- in_writing msg this module
+    i_original : in std_ulogic := '0'); -- wire bus 1, host source 5
 end entity flexray_log;
 architecture syn of flexray_log is
 
@@ -140,7 +141,9 @@ begin
               send_msg := i_msg;
               this_busy <= '1';
 
-              if i_bus = '0' then
+              if i_original = '1' then
+                busnum := b"001";
+              elsif i_bus = '0' then
                 busnum := b"000";
               else
                 busnum := b"010";

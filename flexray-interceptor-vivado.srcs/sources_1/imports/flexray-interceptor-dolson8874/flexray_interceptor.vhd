@@ -51,7 +51,8 @@ architecture syn of flexray_interceptor is
       i_msg      : in work.flexray.message; -- flexray message
       o_tx_byte  : out std_ulogic_vector (7 downto 0); -- fastserial_tx data
       o_tx_ready : out std_ulogic; -- fastserial tx ready 
-      o_busy     : out std_ulogic);
+      o_busy     : out std_ulogic;
+      i_original : in std_ulogic := '0');
   end component flexray_log;
   
   signal s_tx_0 : std_ulogic;
@@ -96,6 +97,11 @@ architecture syn of flexray_interceptor is
   signal msg_dadc_rx    : work.flexray.message;
   signal ready_bcm_rx   : std_ulogic;
   signal msg_bcm_rx     : work.flexray.message;
+  signal s_original, ready_original, original_valid : std_ulogic := '0';
+  signal msg_original : work.flexray.message;
+  signal log_original : std_ulogic;
+  signal log_original_received, log_original_dropped, log_original_high_water,
+    log_original_bytes : std_ulogic_vector(31 downto 0);
   -- Preserved debug probes; no new bytes/commands in the SPI stream.
   signal log_dadc_received, log_bcm_received : std_ulogic_vector(31 downto 0);
   signal log_dadc_dropped, log_bcm_dropped : std_ulogic_vector(31 downto 0);
@@ -107,6 +113,8 @@ architecture syn of flexray_interceptor is
   signal log_fifo_full_events : unsigned(31 downto 0) := (others => '0');
   signal previous_fifo_full : std_ulogic := '0';
   attribute MARK_DEBUG : string;
+  attribute MARK_DEBUG of log_original_received, log_original_dropped,
+    log_original_high_water, log_original_bytes : signal is "TRUE";
   attribute MARK_DEBUG of log_dadc_received, log_bcm_received,
     log_dadc_dropped, log_bcm_dropped, log_dadc_high_water, log_bcm_high_water,
     log_dadc_bytes, log_bcm_bytes, log_spi_bytes, log_spi_clocked_bytes,
@@ -151,6 +159,13 @@ begin
   rx_bcm : flexray_rx port map (
     clk => clk, rst => rst, rx => s_tx_1,
     msg => msg_bcm_rx, ready => ready_bcm_rx);
+
+  -- Same echo guard and input sampling stage as the unmodified DADC path,
+  -- independent of override. Never feed logger backpressure into forwarding.
+  rx_original : flexray_rx port map (
+    clk => clk, rst => rst, rx => s_original,
+    msg => msg_original, ready => ready_original);
+  original_valid <= ready_original when work.flexray.original_log_candidate(msg_original.frame_id) else '0';
      
   tx_log : flexray_log PORT map(
     i_clk => clk, 
@@ -161,7 +176,8 @@ begin
     i_msg => msg_latched,
     o_tx_byte => tx_byte, 
     o_tx_ready => tx_ready, 
-    o_busy => log_busy
+    o_busy => log_busy,
+    i_original => log_original
     );  
 
   -- flexray_log, fifo push
@@ -262,7 +278,11 @@ begin
     dadc_received => log_dadc_received, bcm_received => log_bcm_received,
     dadc_dropped => log_dadc_dropped, bcm_dropped => log_bcm_dropped,
     dadc_high_water => log_dadc_high_water, bcm_high_water => log_bcm_high_water,
-    dadc_bytes => log_dadc_bytes, bcm_bytes => log_bcm_bytes);
+    dadc_bytes => log_dadc_bytes, bcm_bytes => log_bcm_bytes,
+    original_valid => original_valid, original_frame => msg_original,
+    log_original => log_original,
+    original_received => log_original_received, original_dropped => log_original_dropped,
+    original_high_water => log_original_high_water, original_bytes => log_original_bytes);
 
   -- Saved FIFO depth = 131072 bytes; this excludes the prefetch byte.
   log_fifo_monitor : process(clk, rst)
@@ -340,6 +360,7 @@ begin
       rx <= '1';
       s_tx_0 <= '1';
       s_tx_1 <= '1';
+      s_original <= '1';
 
       tx_0_delayed <= (others => '1');
       tx_1_delayed <= (others => '1');
@@ -348,6 +369,12 @@ begin
       tx_1_delayed <= tx_1_delayed(6 downto 0) & s_tx_1;
 
       rx <= rx_1;
+
+      if rx_1 = '0' and tx_1_delayed = b"11111111" then
+        s_original <= '0';
+      else
+        s_original <= '1';
+      end if;
 
       if override = '1' then
         s_tx_0 <= tx;

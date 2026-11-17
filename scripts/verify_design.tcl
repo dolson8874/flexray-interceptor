@@ -153,10 +153,11 @@ update_compile_order -fileset sources_1
 synth_design -top bendbeam_wrapper -part xa7s50csga324-1Q -flatten_hierarchy rebuilt
 set dadc_rams [get_cells -hierarchical -filter {NAME =~ *dadc_queue* && REF_NAME =~ RAM*}]
 set bcm_rams [get_cells -hierarchical -filter {NAME =~ *bcm_queue* && REF_NAME =~ RAM*}]
-if {[llength $dadc_rams] == 0 || [llength $bcm_rams] == 0} {
+set original_rams [get_cells -hierarchical -filter {NAME =~ *original_queue* && REF_NAME =~ RAM*}]
+if {[llength $dadc_rams] == 0 || [llength $bcm_rams] == 0 || [llength $original_rams] == 0} {
   error "Per-direction logging FIFOs did not infer RAM storage"
 }
-puts "LOG_FIFO_RAM_RESULT dadc=[llength $dadc_rams] bcm=[llength $bcm_rams] depth=32"
+puts "LOG_FIFO_RAM_RESULT dadc=[llength $dadc_rams] bcm=[llength $bcm_rams] original=[llength $original_rams] depth=32"
 read_xdc [file join $repo flexray-interceptor-vivado.srcs constrs_1 new control_snapshot_cdc.xdc]
 read_xdc [file join $repo flexray-interceptor-vivado.srcs constrs_1 new spi_cdc.xdc]
 write_checkpoint -force [file join $build synthesized.dcp]
