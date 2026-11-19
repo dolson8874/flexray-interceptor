@@ -106,9 +106,9 @@ def main():
     paths = [output / f'{name}.{suffix}' for suffix in ('bit', 'bin', 'mcs')]
     image_validation = verify_images(*paths)
     verification = read_log(args.verify_log)
-    match = re.search(r'VERIFY_RESULT telemetry=false diagnostics=true CAN_ID=0x1FA WNS=([\d.-]+) WHS=([\d.-]+)', verification)
+    match = re.search(r'VERIFY_RESULT telemetry=false diagnostics=true CAN_ID=0x1FA WNS=([\d.-]+) WHS=([\d.-]+) hud=true\s*$', verification, re.MULTILINE)
     if match is None or min(map(float, match.groups())) < 0 or 'SPI_CDC_RESULT stages=4' not in verification:
-        raise ValueError('Missing successful release timing/CDC verification')
+        raise ValueError('Missing successful HUD-enabled release timing/CDC verification')
     if 'PROGRAMMING_FILES_PASS' not in read_log(args.program_log):
         raise ValueError('Programming file generation did not complete')
 
@@ -127,6 +127,7 @@ def main():
             'working_tree_status': git('status', '--porcelain=v1').splitlines(),
             'build_uses_saved_xpr': False, 'vivado': '2024.2', 'part': 'xa7s50csga324-1Q',
             'frame_telemetry': False, 'diagnostics': True, 'can_id': '0x1FA',
+            'cruise_hud': True, 'cruise_hud_can_id': '0x1FB',
             'identity_hex': (bytes([0x2f, *version]) + build_id.to_bytes(4, 'little')).hex().upper(),
             'source5_original_ids': ['0x1F', '0x31', '0x0D'], 'source5_cycles': 'all',
             'TEST_LCA': False, 'flash': 'MT25QL128', 'interface': 'SPIx4', 'flash_capacity_MiB': 16,
@@ -148,7 +149,7 @@ def main():
         'Host must support CA90/source5. Host changes are maintained separately.\n'
         f'CAN identity (0x1FA, DLC8): {info["identity_hex"]}\n'
         f'Timing: WNS {info["WNS_ns"]:+.3f} ns / WHS {info["WHS_ns"]:+.3f} ns.\n'
-        'Frame telemetry OFF; logging diagnostics ON; TEST_LCA=false.\n'
+        'Frame telemetry OFF; logging diagnostics ON; cruise HUD CAN 0x1FB ON; TEST_LCA=false.\n'
         'No hardware/flash was programmed. Physical I/O/USB/vehicle validation not performed.\n'
         'Check SHA256SUMS.txt before use. build_info.json records source provenance.\n', encoding='utf-8')
     paths += [metadata, readme]

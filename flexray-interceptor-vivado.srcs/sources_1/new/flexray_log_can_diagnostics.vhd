@@ -30,7 +30,7 @@ architecture rtl of flexray_log_can_diagnostics is
   constant FW_MAJOR : natural range 0 to 255 := 1;
   constant FW_MINOR : natural range 0 to 255 := 1;
   constant FW_PATCH : natural range 0 to 255 := 0;
-  constant BUILD_ID : std_ulogic_vector(31 downto 0) := x"00000002";
+  constant BUILD_ID : std_ulogic_vector(31 downto 0) := x"00000003";
   signal snapshot : std_ulogic_vector(383 downto 0) := (others => '0');
   signal sequence_number : unsigned(7 downto 0) := (others => '1');
   signal timer : natural range 0 to PERIOD_CYCLES-1 := 0;
