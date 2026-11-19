@@ -297,11 +297,11 @@ and checks reset, stalled consumption, and exact log frames including final CRC.
 
 ## CAN1 cruise HUD observation
 
-The optional `ENABLE_CRUISE_HUD` parameter on `joystick_decoder_0` enables
-standard CAN `0x1FB`, DLC 8. The saved block design leaves it off. It also
-requires the shared transmitter (`ENABLE_CAN_TELEMETRY` on the controller).
-The dedicated `hud` mode in `scripts/verify_design.tcl` enables it in a
-temporary implementation project alongside the existing `0x1FA` diagnostics.
+The WIP block design enables standard CAN `0x1FB`, DLC 8, through the
+`ENABLE_CRUISE_HUD` parameter on `joystick_decoder_0`. It shares the
+transmitter with the existing `0x1FA` diagnostics. The default verification
+mode in `scripts/verify_design.tcl` uses this configuration. Use `hud-off`
+to verify a temporary build with cruise HUD reporting disabled.
 
 The source is the CRC-qualified DADC forwarding output decoded for source 6.
 Only ID `0x31`, cycle modulo 8 equal to 1, NFI=1 and 26 payload bytes can

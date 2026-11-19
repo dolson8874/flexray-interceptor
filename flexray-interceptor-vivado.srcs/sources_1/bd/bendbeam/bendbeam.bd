@@ -508,7 +508,7 @@
             "value": "true"
           },
           "ENABLE_CRUISE_HUD": {
-            "value": "false"
+            "value": "true"
           }
         },
         "reference_info": {

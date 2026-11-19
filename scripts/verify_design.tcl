@@ -1,8 +1,8 @@
 # Local-only Vivado 2024.2 validation. Does not generate/program a bitstream.
 # argv: 0 = frame telemetry disabled, 1 = enabled (verification only).
-#       Diagnostic CAN 0x1FA is enabled in both configurations.
+#       Diagnostic CAN 0x1FA and cruise HUD CAN 0x1FB are enabled by default.
 #       prepare = refresh/copy the saved BD, skip synthesis/implementation.
-#       hud = verify the opt-in CAN1 cruise HUD with frame telemetry disabled.
+#       hud = alias for 0; hud-off = verify with cruise HUD disabled.
 set repo [file normalize [file join [file dirname [info script]] ..]]
 if {[catch {
 set mode [lindex $argv 0]
@@ -134,7 +134,8 @@ if {[llength [get_bd_nets -quiet -of_objects [get_bd_pins joystick_decoder_0/cru
 if {[llength [get_bd_nets -quiet -of_objects [get_bd_pins joystick_decoder_0/hud_src_clk]]] == 0} {
   connect_bd_net [get_bd_pins clk_wiz_0/clk_out1] [get_bd_pins joystick_decoder_0/hud_src_clk]
 }
-set_property CONFIG.ENABLE_CRUISE_HUD [expr {$mode eq "hud"}] [get_bd_cells joystick_decoder_0]
+set hud_enabled [expr {$mode eq "hud-off" ? "false" : "true"}]
+set_property CONFIG.ENABLE_CRUISE_HUD $hud_enabled [get_bd_cells joystick_decoder_0]
 validate_bd_design
 save_bd_design
 if {$mode eq "prepare"} {
@@ -150,7 +151,7 @@ if {$mode eq "prepare"} {
     set contents [string map {local_verify.gen flexray-interceptor-vivado.gen} $contents]
     set channel [open [file join $sources bd bendbeam ip $name ${name}.xci] w]; puts -nonewline $channel $contents; close $channel
   }
-  puts "PREPARE_PASS: frame telemetry disabled; diagnostic CAN 0x1FA enabled; source BD refreshed"
+  puts "PREPARE_PASS: frame telemetry disabled; diagnostic CAN 0x1FA enabled; HUD CAN 0x1FB enabled; source BD refreshed"
   exit
 }
 generate_target all [get_files bendbeam.bd]
@@ -190,7 +191,7 @@ set setup [get_timing_paths -delay_type max -max_paths 1]
 set hold [get_timing_paths -delay_type min -max_paths 1]
 set sync_count [llength [get_cells -hierarchical -filter {NAME =~ */control_snapshot_0/U0/request_meta_reg || NAME =~ */control_snapshot_0/U0/ack_meta_reg}]]
 if {$sync_count != 2} { error "Control CDC synchronizer constraints did not match both toggle stages" }
-puts "VERIFY_RESULT telemetry=$enabled diagnostics=true CAN_ID=0x1FA WNS=[get_property SLACK $setup] WHS=[get_property SLACK $hold]"
+puts "VERIFY_RESULT telemetry=$enabled diagnostics=true CAN_ID=0x1FA WNS=[get_property SLACK $setup] WHS=[get_property SLACK $hold] hud=$hud_enabled"
 if {[get_property SLACK $setup] < 0 || [get_property SLACK $hold] < 0} {
   error "Setup/hold timing constraints are not met; see timing_summary.rpt"
 }
