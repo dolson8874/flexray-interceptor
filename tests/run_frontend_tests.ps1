@@ -14,6 +14,8 @@ try {
     $files += Join-Path $repoPath 'flexray-interceptor-vivado.srcs/sources_1/new/flexray_log_dispatch.vhd'
     $files += Join-Path $sourcePath 'flexray_interceptor.vhd'
     $files += @('flexray_reference_pkg.vhd','frontend_tb.vhd','source5_frontend_tb.vhd','source5_dispatch_tb.vhd') | ForEach-Object {Join-Path $PSScriptRoot $_}
+    $files += @('can_pkg.vhd','can_rx.vhd','can_tx.vhd','joystick_decoder.vhd') | ForEach-Object {Join-Path $sourcePath $_}
+    $files += Join-Path $PSScriptRoot 'cruise_hud_tb.vhd'
     & (Join-Path $VivadoBin 'xvhdl.bat') --2008 @files
     if ($LASTEXITCODE -ne 0) { throw 'Compile failed' }
     $top = if ($LogOnly) {'work.frontend_log_tb'} else {'work.frontend_tb'}
@@ -24,8 +26,8 @@ try {
     $simulationLog = Get-Content xsim.log -Raw
     if ($simulationLog -notmatch 'TEST_SUMMARY frontend failures=0' -or $simulationLog -match '(?m)^(Error|Failure|Fatal):') { throw 'Frontend regressions failed' }
     Copy-Item -LiteralPath xsim.log -Destination frontend_result.log
-    foreach ($case in @('source5_dispatch','source5_frontend')) {
-        & (Join-Path $VivadoBin 'xelab.bat') --rangecheck "work.${case}_tb" work.glbl -L fifo_generator_v13_2_11 -s $case
+    foreach ($case in @('source5_dispatch','source5_frontend','cruise_hud')) {
+        & (Join-Path $VivadoBin 'xelab.bat') --rangecheck "work.${case}_tb" work.glbl -L fifo_generator_v13_2_11 -L xpm -s $case
         if ($LASTEXITCODE -ne 0) { throw "$case elaboration failed" }
         & (Join-Path $VivadoBin 'xsim.bat') $case -runall
         if ($LASTEXITCODE -ne 0) { throw "$case simulation failed" }

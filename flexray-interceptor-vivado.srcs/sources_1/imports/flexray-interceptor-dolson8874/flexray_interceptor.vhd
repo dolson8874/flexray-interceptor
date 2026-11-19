@@ -25,7 +25,8 @@ entity flexray_interceptor is
     send_log : out std_ulogic_vector(7 downto 0);
     ready    : out std_ulogic;
     log_stats : out std_ulogic_vector(383 downto 0);
-    spi_byte_done : in std_ulogic := '0'
+    spi_byte_done : in std_ulogic := '0';
+    cruise_hud_sample : out std_ulogic_vector(17 downto 0)
   );
 end entity flexray_interceptor;
 
@@ -159,6 +160,17 @@ begin
   rx_bcm : flexray_rx port map (
     clk => clk, rst => rst, rx => s_tx_1,
     msg => msg_bcm_rx, ready => ready_bcm_rx);
+
+  -- The same CRC-qualified DADC forwarding output used for source 6.
+  cruise_hud_sample(17) <= ready_dadc_rx when msg_dadc_rx.frame_id = "00000110001" and
+    msg_dadc_rx.cycle_count(2 downto 0) = "001" and msg_dadc_rx.flags(2) = '1' and
+    msg_dadc_rx.payload_length = "0001101" else '0';
+  cruise_hud_sample(16) <= msg_dadc_rx.data(18)(6); -- Off
+  cruise_hud_sample(15 downto 14) <= std_ulogic_vector(msg_dadc_rx.data(17)(3 downto 2)); -- Gray/Green
+  cruise_hud_sample(13) <= msg_dadc_rx.data(18)(5); -- On
+  cruise_hud_sample(12 downto 11) <= std_ulogic_vector(msg_dadc_rx.data(17)(1 downto 0)); -- GAP
+  cruise_hud_sample(10 downto 8) <= std_ulogic_vector(msg_dadc_rx.data(16)(2 downto 0)); -- Mode
+  cruise_hud_sample(7 downto 0) <= std_ulogic_vector(msg_dadc_rx.data(19)); -- H
 
   -- Same echo guard and input sampling stage as the unmodified DADC path,
   -- independent of override. Never feed logger backpressure into forwarding.

@@ -1,9 +1,16 @@
 library ieee;
 use ieee.numeric_std.all;
 use ieee.std_logic_1164.all;
+library xpm;
+use xpm.vcomponents.all;
 
 entity joystick_decoder is
-  generic (ENABLE_CAN_TELEMETRY : boolean := false);
+  generic (
+    ENABLE_CAN_TELEMETRY : boolean := false;
+    ENABLE_CRUISE_HUD : boolean := false;
+    HUD_PERIOD_CYCLES : positive := 320000;
+    HUD_TIMEOUT_CYCLES : positive := 1280000
+  );
   port (
     clk    : in std_ulogic;
     rst    : in std_ulogic;
@@ -17,7 +24,9 @@ entity joystick_decoder is
     debug  : out std_ulogic;
     telemetry_valid : in std_ulogic := '0';
     telemetry_data : in std_ulogic_vector(78 downto 0) := (others => '0');
-    telemetry_ready : out std_ulogic := '0');
+    telemetry_ready : out std_ulogic := '0';
+    hud_src_clk : in std_ulogic := '0';
+    cruise_hud_sample : in std_ulogic_vector(17 downto 0) := (others => '0'));
 end joystick_decoder;
 
 architecture syn of joystick_decoder is
@@ -57,6 +66,8 @@ architecture syn of joystick_decoder is
   signal tx_can_rx, tx_can_tx, active_tx, ack_allowed : std_ulogic;
   signal tx_success, tx_arblost, tx_ackerr, tx_biterr : std_ulogic;
   signal tx_state, tx_retries : std_ulogic_vector(3 downto 0);
+  signal hud_valid, hud_taken, telemetry_accept : std_ulogic;
+  signal hud_payload : std_ulogic_vector(63 downto 0);
   attribute MARK_DEBUG : string;
   attribute MARK_DEBUG of tx_success, tx_arblost, tx_ackerr, tx_biterr, tx_state, tx_retries : signal is "TRUE";
 
@@ -73,6 +84,84 @@ architecture syn of joystick_decoder is
   signal hb_led   : std_ulogic := '0';  
 
 begin
+  assert not ENABLE_CRUISE_HUD or ENABLE_CAN_TELEMETRY
+    report "Cruise HUD requires the CAN transmitter" severity failure;
+
+  cruise_hud_enabled : if ENABLE_CRUISE_HUD generate
+    signal source_reset, dest_reset, full, empty, wr_busy, rd_busy : std_logic;
+    signal wr_en, rd_en, previous_valid : std_logic := '0';
+    signal fifo_data : std_logic_vector(16 downto 0);
+    signal latest : std_ulogic_vector(16 downto 0) := (others => '0');
+    signal age : natural range 0 to HUD_TIMEOUT_CYCLES := HUD_TIMEOUT_CYCLES;
+    signal cooldown : natural range 0 to HUD_PERIOD_CYCLES-1 := 0;
+    signal counter : unsigned(3 downto 0) := (others => '0');
+    signal protected_bytes : std_ulogic_vector(31 downto 0);
+  begin
+    src_reset_sync : xpm_cdc_async_rst
+      generic map (DEST_SYNC_FF => 4, RST_ACTIVE_HIGH => 1)
+      port map (src_arst => rst, dest_clk => hud_src_clk, dest_arst => source_reset);
+    dst_reset_sync : xpm_cdc_async_rst
+      generic map (DEST_SYNC_FF => 4, RST_ACTIVE_HIGH => 1)
+      port map (src_arst => rst, dest_clk => clk, dest_arst => dest_reset);
+
+    -- The destination continuously drains samples, independently of CAN TX.
+    -- Only the latest complete HUD sample participates in the next report.
+    samples : xpm_fifo_async
+      generic map (
+        FIFO_MEMORY_TYPE => "distributed", FIFO_WRITE_DEPTH => 16,
+        WRITE_DATA_WIDTH => 17, READ_DATA_WIDTH => 17, READ_MODE => "fwft",
+        FIFO_READ_LATENCY => 0, CDC_SYNC_STAGES => 3, USE_ADV_FEATURES => "0000",
+        SIM_ASSERT_CHK => 1)
+      port map (
+        sleep => '0', rst => source_reset, wr_clk => hud_src_clk, wr_en => wr_en,
+        din => std_logic_vector(cruise_hud_sample(16 downto 0)), full => full, wr_rst_busy => wr_busy,
+        rd_clk => clk, rd_en => rd_en, dout => fifo_data,
+        empty => empty, rd_rst_busy => rd_busy, prog_full => open,
+        wr_data_count => open, overflow => open, almost_full => open,
+        wr_ack => open, prog_empty => open, rd_data_count => open, underflow => open,
+        almost_empty => open, data_valid => open, injectsbiterr => '0',
+        injectdbiterr => '0', sbiterr => open, dbiterr => open);
+    process(hud_src_clk)
+    begin
+      if rising_edge(hud_src_clk) then
+        if source_reset = '1' then previous_valid <= '0';
+        else previous_valid <= cruise_hud_sample(17);
+        end if;
+      end if;
+    end process;
+    wr_en <= cruise_hud_sample(17) and not previous_valid and not full and not wr_busy and not source_reset;
+    rd_en <= not empty and not rd_busy and not dest_reset;
+    hud_valid <= '1' when cooldown = 0 and age < HUD_TIMEOUT_CYCLES and
+                          dest_reset = '0' and rd_en = '0' else '0';
+    protected_bytes <= latest(16 downto 13) & std_ulogic_vector(counter) &
+                       "000" & latest(12 downto 8) & latest(7 downto 0) & x"00";
+    hud_payload <= crc8_4(x"00", protected_bytes) & protected_bytes & x"000000";
+    process(clk)
+    begin
+      if rising_edge(clk) then
+        if dest_reset = '1' then
+          latest <= (others => '0'); age <= HUD_TIMEOUT_CYCLES;
+          cooldown <= 0; counter <= (others => '0');
+        else
+          if rd_en = '1' then
+            latest <= std_ulogic_vector(fifo_data); age <= 0;
+          elsif age < HUD_TIMEOUT_CYCLES then
+            age <= age + 1;
+          end if;
+          if hud_taken = '1' then
+            cooldown <= HUD_PERIOD_CYCLES - 1; counter <= counter + 1;
+          elsif cooldown > 0 then
+            cooldown <= cooldown - 1;
+          end if;
+        end if;
+      end if;
+    end process;
+  end generate;
+
+  cruise_hud_disabled : if not ENABLE_CRUISE_HUD generate
+    hud_valid <= '0'; hud_payload <= (others => '0');
+  end generate;
+
   ack_allowed <= not active_tx;
   rx_obj : entity work.can_rx port map (
     clk => clk, rst => rst, rx => rx, ready => ready, msg => msg,
@@ -84,7 +173,9 @@ begin
       busy => ibusy, tx => tx_can_tx, done => idone, active => active_tx,
       success => tx_success, dbg_state => tx_state, dbg_arblost => tx_arblost,
       dbg_ack_err => tx_ackerr, dbg_bit_err => tx_biterr, retry_count => tx_retries);
-    telemetry_ready <= not ibusy and not ready_tx and not rst;
+    hud_taken <= hud_valid and not ibusy and not ready_tx and not rst;
+    telemetry_accept <= not hud_valid and not ibusy and not ready_tx and not rst;
+    telemetry_ready <= telemetry_accept;
     schedule_tx : process(clk, rst)
     begin
       if rst = '1' then
@@ -92,7 +183,12 @@ begin
         omsg.len <= (others => '0'); omsg.dat <= (others => '0');
       elsif rising_edge(clk) then
         ready_tx <= '0';
-        if telemetry_valid = '1' and ibusy = '0' and ready_tx = '0' then
+        if hud_taken = '1' then
+          omsg.id <= std_ulogic_vector(to_unsigned(16#1FB#, 11));
+          omsg.len <= "1000";
+          omsg.dat <= hud_payload;
+          ready_tx <= '1';
+        elsif telemetry_valid = '1' and telemetry_accept = '1' then
           omsg.id <= telemetry_data(78 downto 68);
           omsg.len <= telemetry_data(67 downto 64);
           omsg.dat <= telemetry_data(63 downto 0); ready_tx <= '1';
@@ -101,7 +197,7 @@ begin
     end process;
   end generate;
   telemetry_disabled : if not ENABLE_CAN_TELEMETRY generate
-    tx_can_tx <= '1'; active_tx <= '0'; telemetry_ready <= '0';
+    tx_can_tx <= '1'; active_tx <= '0'; telemetry_ready <= '0'; hud_taken <= '0';
   end generate;
 
   -- debug <= not can_received;

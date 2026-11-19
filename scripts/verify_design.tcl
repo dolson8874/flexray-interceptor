@@ -2,6 +2,7 @@
 # argv: 0 = frame telemetry disabled, 1 = enabled (verification only).
 #       Diagnostic CAN 0x1FA is enabled in both configurations.
 #       prepare = refresh/copy the saved BD, skip synthesis/implementation.
+#       hud = verify the opt-in CAN1 cruise HUD with frame telemetry disabled.
 set repo [file normalize [file join [file dirname [info script]] ..]]
 if {[catch {
 set mode [lindex $argv 0]
@@ -38,7 +39,7 @@ set_property generate_synth_checkpoint false [get_files fifo_generator_0.xci]
 update_compile_order -fileset sources_1
 open_bd_design [get_files bendbeam.bd]
 puts "REFRESH_MODULE_START"
-if {[llength [get_bd_pins -quiet joystick_decoder_0/telemetry_valid]] == 0} {
+if {[llength [get_bd_pins -quiet joystick_decoder_0/cruise_hud_sample]] == 0} {
 set connections {}
 foreach pin [get_bd_pins -of_objects [get_bd_cells joystick_decoder_0]] {
   set net [get_bd_nets -quiet -of_objects $pin]
@@ -70,7 +71,8 @@ proc refresh_logging_reference {name reference} {
     connect_bd_net -net [lindex $connection 1] [get_bd_pins $name/[lindex $connection 0]]
   }
 }
-if {[llength [get_bd_pins -quiet flexray_interceptor_0/log_stats]] == 0 ||
+if {[llength [get_bd_pins -quiet flexray_interceptor_0/cruise_hud_sample]] == 0 ||
+    [llength [get_bd_pins -quiet flexray_interceptor_0/log_stats]] == 0 ||
     [get_property LEFT [get_bd_pins flexray_interceptor_0/log_stats]] != 383} {
   refresh_logging_reference flexray_interceptor_0 flexray_interceptor
 }
@@ -126,6 +128,13 @@ if {[llength [get_bd_cells -quiet control_snapshot_0]] == 0} {
 set_property CONFIG.ENABLED $enabled [get_bd_cells flexray_can_telemetry_0]
 # The shared transmitter is needed for diagnostics even with frame telemetry off.
 set_property CONFIG.ENABLE_CAN_TELEMETRY true [get_bd_cells joystick_decoder_0]
+if {[llength [get_bd_nets -quiet -of_objects [get_bd_pins joystick_decoder_0/cruise_hud_sample]]] == 0} {
+  connect_bd_net [get_bd_pins flexray_interceptor_0/cruise_hud_sample] [get_bd_pins joystick_decoder_0/cruise_hud_sample]
+}
+if {[llength [get_bd_nets -quiet -of_objects [get_bd_pins joystick_decoder_0/hud_src_clk]]] == 0} {
+  connect_bd_net [get_bd_pins clk_wiz_0/clk_out1] [get_bd_pins joystick_decoder_0/hud_src_clk]
+}
+set_property CONFIG.ENABLE_CRUISE_HUD [expr {$mode eq "hud"}] [get_bd_cells joystick_decoder_0]
 validate_bd_design
 save_bd_design
 if {$mode eq "prepare"} {

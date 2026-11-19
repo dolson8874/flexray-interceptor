@@ -8,7 +8,9 @@ package flexray_reference is
     constant neutral : boolean := true; constant message_counter : integer := -1;
     constant crc_error_bit : natural range 0 to 23 := 0;
     constant corrupt_payload_bit : integer range -1 to 207 := -1;
-    constant payload_words : natural range 0 to 127 := 13);
+    constant payload_words : natural range 0 to 127 := 13;
+    constant nfi : std_ulogic := '0';
+    constant hud_bytes : std_ulogic_vector(31 downto 0) := x"28000000");
 end package;
 package body flexray_reference is
   procedure send_frame(signal wire_rx : out std_ulogic;
@@ -17,7 +19,9 @@ package body flexray_reference is
     constant neutral : boolean := true; constant message_counter : integer := -1;
     constant crc_error_bit : natural range 0 to 23 := 0;
     constant corrupt_payload_bit : integer range -1 to 207 := -1;
-    constant payload_words : natural range 0 to 127 := 13) is
+    constant payload_words : natural range 0 to 127 := 13;
+    constant nfi : std_ulogic := '0';
+    constant hud_bytes : std_ulogic_vector(31 downto 0) := x"28000000") is
     variable header : std_ulogic_vector(39 downto 0);
     variable hc : std_ulogic_vector(10 downto 0) := std_ulogic_vector(to_unsigned(26, 11));
     variable crc : std_ulogic_vector(23 downto 0) := x"FEDCBA";
@@ -36,11 +40,14 @@ package body flexray_reference is
     end procedure;
   begin
     for j in 26 to 253 loop payload(j) := std_logic_vector(to_unsigned(j,8)); end loop;
-    payload(15) := x"23"; payload(16) := x"28"; payload(25) := x"60";
+    payload(15) := x"23"; payload(25) := x"60";
+    for j in 0 to 3 loop
+      payload(16+j) := hud_bytes(31-j*8 downto 24-j*8);
+    end loop;
     if not neutral then payload(15) := x"24"; end if;
     if message_counter < 0 then payload(1) := std_logic_vector(to_unsigned(cycle / 4, 8));
     else payload(1) := std_logic_vector(to_unsigned(message_counter, 8)); end if;
-    header := "00000" & std_ulogic_vector(to_unsigned(identifier, 11)) & std_ulogic_vector(to_unsigned(payload_words,7)) &
+    header := "00" & nfi & "00" & std_ulogic_vector(to_unsigned(identifier, 11)) & std_ulogic_vector(to_unsigned(payload_words,7)) &
       "00000000000" & std_ulogic_vector(to_unsigned(cycle, 6));
     for j in 36 downto 17 loop
       if (header(j) xor hc(10)) = '1' then hc := (hc(9 downto 0) & '0') xor "01110000101";

@@ -295,6 +295,28 @@ flushes the prefetch and drives both forwarding outputs and enables to idle high
 The frontend suite generates the actual FIFO simulation model from the saved XCI
 and checks reset, stalled consumption, and exact log frames including final CRC.
 
+## CAN1 cruise HUD observation
+
+The optional `ENABLE_CRUISE_HUD` parameter on `joystick_decoder_0` enables
+standard CAN `0x1FB`, DLC 8. The saved block design leaves it off. It also
+requires the shared transmitter (`ENABLE_CAN_TELEMETRY` on the controller).
+The dedicated `hud` mode in `scripts/verify_design.tcl` enables it in a
+temporary implementation project alongside the existing `0x1FA` diagnostics.
+
+The source is the CRC-qualified DADC forwarding output decoded for source 6.
+Only ID `0x31`, cycle modulo 8 equal to 1, NFI=1 and 26 payload bytes can
+update the HUD snapshot. The CAN clock domain keeps the latest coherent
+sample. It offers a report about every 50 ms and stops offering reports
+after about 200 ms without a fresh sample. The pending HUD state does not
+form a CAN transmit queue.
+
+The payload is CRC-8, Off/Gray/Green/On and a modulo-16 counter, Mode/GAP
+raw, H raw, then four zero bytes. The existing CAN application CRC function
+covers bytes 1–4 in wire order. The counter advances when the transmitter
+accepts a report. The `cruise_hud` simulation in
+`tests/run_frontend_tests.ps1` exercises the FlexRay input through the
+physical CAN serializer and checks the received bytes.
+
 ## Selected DADC original logging (2026-11-17)
 
 The logger now retains DADC originals for frame IDs `0x1F`, `0x31`, and `0x0D`,

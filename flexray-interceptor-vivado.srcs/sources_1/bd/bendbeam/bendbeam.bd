@@ -506,6 +506,9 @@
         "parameters": {
           "ENABLE_CAN_TELEMETRY": {
             "value": "true"
+          },
+          "ENABLE_CRUISE_HUD": {
+            "value": "false"
           }
         },
         "reference_info": {
@@ -518,10 +521,6 @@
             "type": "clk",
             "direction": "I",
             "parameters": {
-              "ASSOCIATED_RESET": {
-                "value": "rst",
-                "value_src": "constant"
-              },
               "FREQ_HZ": {
                 "value": "6382978",
                 "value_src": "ip_prop"
@@ -533,6 +532,10 @@
               "CLK_DOMAIN": {
                 "value": "/clk_wiz_0_clk_out1",
                 "value_src": "ip_prop"
+              },
+              "ASSOCIATED_RESET": {
+                "value": "rst",
+                "value_src": "constant"
               }
             }
           },
@@ -590,6 +593,29 @@
           },
           "telemetry_ready": {
             "direction": "O"
+          },
+          "hud_src_clk": {
+            "type": "clk",
+            "direction": "I",
+            "parameters": {
+              "FREQ_HZ": {
+                "value": "80000000",
+                "value_src": "ip_prop"
+              },
+              "PHASE": {
+                "value": "0.0",
+                "value_src": "ip_prop"
+              },
+              "CLK_DOMAIN": {
+                "value": "/clk_wiz_0_clk_out1",
+                "value_src": "ip_prop"
+              }
+            }
+          },
+          "cruise_hud_sample": {
+            "direction": "I",
+            "left": "17",
+            "right": "0"
           }
         }
       },
@@ -869,6 +895,11 @@
           },
           "spi_byte_done": {
             "direction": "I"
+          },
+          "cruise_hud_sample": {
+            "direction": "O",
+            "left": "17",
+            "right": "0"
           }
         }
       },
@@ -1147,7 +1178,8 @@
           "flexray_can_telemetry_0/src_clk",
           "control_snapshot_0/dst_clk",
           "flexray_interceptor_0/clk",
-          "flexray_log_can_diagnostics_0/src_clk"
+          "flexray_log_can_diagnostics_0/src_clk",
+          "joystick_decoder_0/hud_src_clk"
         ]
       },
       "clk_wiz_0_clk_out3": {
@@ -1194,6 +1226,12 @@
         "ports": [
           "flexray_can_telemetry_0/m_valid",
           "can_telemetry_mux_0/a_valid"
+        ]
+      },
+      "flexray_interceptor_0_cruise_hud_sample": {
+        "ports": [
+          "flexray_interceptor_0/cruise_hud_sample",
+          "joystick_decoder_0/cruise_hud_sample"
         ]
       },
       "flexray_interceptor_0_log_stats": {
